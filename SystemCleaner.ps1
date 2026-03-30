@@ -182,51 +182,163 @@ function Write-CommandLog {
     Write-Log -Message ("{0} {1}" -f $Verb, $Target) -Level 'CMD'
 }
 
+function Get-ConsoleWidth {
+    try {
+        $width = $Host.UI.RawUI.WindowSize.Width
+        if ($width -lt 60) {
+            return 60
+        }
+
+        return $width
+    } catch {
+        return 100
+    }
+}
+
+function Get-DisplayText {
+    param(
+        [string]$Text,
+        [int]$MaxWidth
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return ''
+    }
+
+    if ($Text.Length -le $MaxWidth) {
+        return $Text
+    }
+
+    if ($MaxWidth -le 3) {
+        return $Text.Substring(0, [Math]::Max(0, $MaxWidth))
+    }
+
+    return $Text.Substring(0, $MaxWidth - 3) + '...'
+}
+
+function Write-CenteredLine {
+    param(
+        [string]$Text,
+        [string]$ForegroundColor = 'White'
+    )
+
+    $consoleWidth = Get-ConsoleWidth
+    $renderText = Get-DisplayText -Text $Text -MaxWidth $consoleWidth
+    $padding = [Math]::Max(0, [int](($consoleWidth - $renderText.Length) / 2))
+    Write-Host ((' ' * $padding) + $renderText) -ForegroundColor $ForegroundColor
+}
+
+function Write-Panel {
+    param(
+        [string[]]$Lines,
+        [string]$BorderColor = 'DarkCyan',
+        [string]$TextColor = 'White',
+        [int]$MinWidth = 60,
+        [int]$MaxWidth = 92
+    )
+
+    $consoleWidth = Get-ConsoleWidth
+    $availableWidth = [Math]::Max(20, $consoleWidth - 4)
+    $contentWidth = 0
+
+    foreach ($line in $Lines) {
+        if ($line.Length -gt $contentWidth) {
+            $contentWidth = $line.Length
+        }
+    }
+
+    $panelWidth = [Math]::Min($availableWidth, [Math]::Max($MinWidth, $contentWidth + 4))
+    $panelWidth = [Math]::Min($panelWidth, $MaxWidth)
+    $panelWidth = [Math]::Min($panelWidth, $consoleWidth)
+
+    $innerWidth = [Math]::Max(1, $panelWidth - 4)
+    $padding = [Math]::Max(0, [int](($consoleWidth - $panelWidth) / 2))
+    $leftPad = ' ' * $padding
+    $border = '+' + ('-' * ($panelWidth - 2)) + '+'
+
+    Write-Host ($leftPad + $border) -ForegroundColor $BorderColor
+    foreach ($line in $Lines) {
+        $renderLine = (Get-DisplayText -Text $line -MaxWidth $innerWidth).PadRight($innerWidth)
+        Write-Host ($leftPad + '| ' + $renderLine + ' |') -ForegroundColor $TextColor
+    }
+    Write-Host ($leftPad + $border) -ForegroundColor $BorderColor
+}
+
+function Show-AppLogo {
+    $logo = @(
+        "   _____         _                    _____ _                              ",
+        "  / ____|       | |                  / ____| |                             ",
+        " | (___   _   _ | |_   ___  _ __    | |    | |  ___   __ _  _ __    ___ _ __ ",
+        "  \___ \ | | | || __| / _ \| '_ \   | |    | | / _ \ / _` || '_ \  / _ \ '__|",
+        "  ____) || |_| || |_ |  __/| | | |  | |____| ||  __/| (_| || | | ||  __/| |   ",
+        " |_____/  \__,_| \__| \___||_| |_|   \_____|_| \___| \__,_||_| |_| \___||_|   "
+    )
+
+    foreach ($line in $logo) {
+        Write-CenteredLine -Text $line -ForegroundColor 'Cyan'
+    }
+
+    Write-CenteredLine -Text 'Windows cleanup console for temp, cache, and maintenance tasks' -ForegroundColor 'DarkGray'
+}
+
+function Get-ExcludedPathSummary {
+    $text = (($script:ExcludedPaths | Sort-Object) -join ', ')
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return 'None'
+    }
+
+    return $text
+}
+
+function Get-LastRunSummaryText {
+    if (-not $script:LastRunSummary) {
+        return 'No cleanup completed in this session'
+    }
+
+    return (
+        "Mode {0} at {1} | {2}s | {3} MB freed" -f
+        $script:LastRunSummary.Mode,
+        $script:LastRunSummary.FinishedAt.ToString('HH:mm:ss'),
+        $script:LastRunSummary.DurationSeconds,
+        $script:LastRunSummary.FreedMB
+    )
+}
+
 function Show-Header {
     Clear-Host
     Write-Host ''
-    Write-Host '============================================================' -ForegroundColor White
-    Write-Host ' System Cleaner' -ForegroundColor White
-    Write-Host ' Interactive terminal cleaner with live logs' -ForegroundColor White
-    Write-Host '============================================================' -ForegroundColor White
-    Write-Host (" Excluded path(s): {0}" -f (($script:ExcludedPaths | Sort-Object) -join ', ')) -ForegroundColor White
-    $free = Get-FreeSpaceInfo
-    Write-Host (" Free space: {0} MB ({1} GB)" -f $free.MB, $free.GB) -ForegroundColor DarkGray
-    Show-LastRunSummary
+    Show-AppLogo
     Write-Host ''
-}
 
-function Show-LastRunSummary {
-    if (-not $script:LastRunSummary) {
-        return
-    }
-
-    $summary = $script:LastRunSummary
-    Write-Host ' Last run recap:' -ForegroundColor DarkGray
-    Write-Host (
-        "  - Mode {0} @ {1} | Duration: {2}s | Freed: {3} MB ({4} GB)" -f `
-        $summary.Mode,
-        $summary.FinishedAt.ToString('HH:mm:ss'),
-        $summary.DurationSeconds,
-        $summary.FreedMB,
-        $summary.FreedGB
-    ) -ForegroundColor DarkGray
+    $free = Get-FreeSpaceInfo
+    $modeLabel = if ($script:CurrentModeName -eq 'Menu') { 'Interactive menu' } else { $script:CurrentModeName }
+    $statusLines = @(
+        ("Session mode     : {0}" -f $modeLabel),
+        ("Free space       : {0} MB ({1} GB)" -f $free.MB, $free.GB),
+        ("Protected paths  : {0}" -f (Get-ExcludedPathSummary)),
+        ("Last run recap   : {0}" -f (Get-LastRunSummaryText))
+    )
+    Write-Panel -Lines $statusLines -BorderColor 'DarkCyan' -TextColor 'White' -MinWidth 68 -MaxWidth 100
     Write-Host ''
 }
 
 function Show-Menu {
     while ($true) {
+        $script:CurrentModeName = 'Menu'
         Show-Header
-        Write-Host '  1. Standard clean' -ForegroundColor Cyan
-        Write-Host '  2. Aggressive clean  (adds DISM cleanup + event log clear)' -ForegroundColor Cyan
-        Write-Host '  3. Preview / dry run' -ForegroundColor Cyan
-        Write-Host '  Q. Quit' -ForegroundColor Cyan
+        Write-Panel -Lines @(
+            'MAIN MENU',
+            '',
+            '[1] Standard clean   Routine cleanup for temp files, browser caches, and common app caches',
+            '[2] Aggressive clean Adds DISM component cleanup and Windows event log clearing',
+            '[3] Preview run      Shows the cleanup plan without deleting anything',
+            '[Q] Quit             Exit the console'
+        ) -BorderColor 'Cyan' -TextColor 'White' -MinWidth 76 -MaxWidth 108
         Write-Host ''
-        Write-Host '  Standard = safe defaults | Aggressive = adds component + log cleanup | Preview = no deletions' -ForegroundColor DarkGray
-        Write-Host '  Logs stay on screen after every run.' -ForegroundColor DarkGray
+        Write-CenteredLine -Text 'Choose a mode and press Enter. Cleanup logs remain visible after each run.' -ForegroundColor 'DarkGray'
         Write-Host ''
 
-        $choice = (Read-Host 'Select an option').Trim().ToUpperInvariant()
+        $choice = (Read-Host 'Selection').Trim().ToUpperInvariant()
         switch ($choice) {
             '1' {
                 Invoke-CleanupRun -SelectedMode 'Standard'
@@ -255,7 +367,13 @@ function Handle-PostRunPrompt {
 
     while ($true) {
         Write-Host ''
-        Write-Host 'Enter = back to menu | R = run same mode again | Q = quit' -ForegroundColor Yellow
+        Write-Panel -Lines @(
+            'POST-RUN ACTIONS',
+            '',
+            '[Enter] Return to the main menu',
+            ("[R] Run {0} again" -f $PreviousMode),
+            '[Q] Exit the console'
+        ) -BorderColor 'Yellow' -TextColor 'White' -MinWidth 54 -MaxWidth 72
         $choice = (Read-Host 'Next action').Trim().ToUpperInvariant()
 
         switch ($choice) {

@@ -16,6 +16,7 @@ $script:CurrentModeName = 'Menu'
 $script:StepIndex = 0
 $script:TotalSteps = 0
 $script:ExcludedPaths = $null
+$script:LastRunSummary = $null
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -189,6 +190,27 @@ function Show-Header {
     Write-Host ' Interactive terminal cleaner with live logs' -ForegroundColor White
     Write-Host '============================================================' -ForegroundColor White
     Write-Host (" Excluded path(s): {0}" -f (($script:ExcludedPaths | Sort-Object) -join ', ')) -ForegroundColor White
+    $free = Get-FreeSpaceInfo
+    Write-Host (" Free space: {0} MB ({1} GB)" -f $free.MB, $free.GB) -ForegroundColor DarkGray
+    Show-LastRunSummary
+    Write-Host ''
+}
+
+function Show-LastRunSummary {
+    if (-not $script:LastRunSummary) {
+        return
+    }
+
+    $summary = $script:LastRunSummary
+    Write-Host ' Last run recap:' -ForegroundColor DarkGray
+    Write-Host (
+        "  - Mode {0} @ {1} | Duration: {2}s | Freed: {3} MB ({4} GB)" -f `
+        $summary.Mode,
+        $summary.FinishedAt.ToString('HH:mm:ss'),
+        $summary.DurationSeconds,
+        $summary.FreedMB,
+        $summary.FreedGB
+    ) -ForegroundColor DarkGray
     Write-Host ''
 }
 
@@ -200,6 +222,7 @@ function Show-Menu {
         Write-Host '  3. Preview / dry run' -ForegroundColor Cyan
         Write-Host '  Q. Quit' -ForegroundColor Cyan
         Write-Host ''
+        Write-Host '  Standard = safe defaults | Aggressive = adds component + log cleanup | Preview = no deletions' -ForegroundColor DarkGray
         Write-Host '  Logs stay on screen after every run.' -ForegroundColor DarkGray
         Write-Host ''
 
@@ -217,7 +240,7 @@ function Show-Menu {
                 Invoke-CleanupRun -SelectedMode 'Preview'
                 if (-not (Handle-PostRunPrompt -PreviousMode 'Preview')) { break }
             }
-            'Q' { break }
+            'Q' { return }
             default {
                 Write-Host ''
                 Write-Host 'Invalid selection. Press Enter to continue.' -ForegroundColor Yellow
@@ -751,6 +774,23 @@ function Invoke-CleanupRun {
     $endSpace = Get-FreeSpaceInfo
     $freedMB = $endSpace.MB - $startSpace.MB
     $freedGB = [math]::Round($freedMB / 1024, 2)
+    $durationSeconds = [math]::Round(($finish - $start).TotalSeconds, 1)
+
+    $script:LastRunSummary = [pscustomobject]@{
+        Mode = $SelectedMode
+        FinishedAt = $finish
+        DurationSeconds = $durationSeconds
+        FreedMB = $freedMB
+        FreedGB = $freedGB
+        SystemLocations = $systemLocations
+        ChromiumProfiles = $browserCount
+        FirefoxProfiles = $firefoxCount
+        AppLocations = $appCount
+        ShellCaches = $shellCount
+        EmptyRemoved = $emptyRemoved
+        StaleRemoved = $staleRemoved
+        LogsCleared = $(if ($script:IsAggressive) { $logsCleared } else { 0 })
+    }
 
     Write-Host ''
     Write-Host '============================================================' -ForegroundColor White
@@ -760,6 +800,19 @@ function Invoke-CleanupRun {
     Write-Log -Message ("Before:  {0} MB ({1} GB)" -f $startSpace.MB, $startSpace.GB)
     Write-Log -Message ("After:   {0} MB ({1} GB)" -f $endSpace.MB, $endSpace.GB)
     Write-Log -Message ("Freed:   {0} MB ({1} GB)" -f $freedMB, $freedGB)
+    Write-Log -Message ("Duration: {0} seconds" -f $durationSeconds)
+    Write-Host ''
+    Write-Host ' Key results:' -ForegroundColor DarkGray
+    Write-Host ("  - System caches: {0}" -f $systemLocations) -ForegroundColor DarkGray
+    Write-Host ("  - Chromium profiles: {0}" -f $browserCount) -ForegroundColor DarkGray
+    Write-Host ("  - Firefox profiles: {0}" -f $firefoxCount) -ForegroundColor DarkGray
+    Write-Host ("  - App cache locations: {0}" -f $appCount) -ForegroundColor DarkGray
+    Write-Host ("  - Shell/GPU cache locations: {0}" -f $shellCount) -ForegroundColor DarkGray
+    Write-Host ("  - Empty folders removed: {0}" -f $emptyRemoved) -ForegroundColor DarkGray
+    Write-Host ("  - Stale junk folders removed: {0}" -f $staleRemoved) -ForegroundColor DarkGray
+    if ($script:IsAggressive) {
+        Write-Host ("  - Event logs cleared: {0}" -f $logsCleared) -ForegroundColor DarkGray
+    }
     if ($script:IsPreview) {
         Write-Log -Message 'Preview mode only. No files were deleted.' -Level 'WARN'
     } elseif ($script:IsAggressive) {

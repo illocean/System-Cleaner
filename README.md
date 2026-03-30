@@ -1,143 +1,105 @@
 # System Cleaner
 
-`System Cleaner` is a Windows PowerShell cleanup utility with a terminal menu, live command logs, and a conservative safety model. It is designed to remove disposable cache and temporary data without touching common personal folders such as `Downloads`.
+`System Cleaner` is a Windows PowerShell cleanup utility built as a console-style application. It focuses on disposable data such as temp files, browser caches, shader caches, update-download leftovers, and selected app caches, while deliberately avoiding common personal folders such as `Downloads`.
 
-The project is intentionally simple:
+The project stays intentionally small:
 
-- One script: `SystemCleaner.ps1`
-- One interface: interactive terminal menu or direct CLI flags
-- One priority: predictable cleanup behavior with visible logs
+- One main script: `SystemCleaner.ps1`
+- One operator experience: interactive menu or direct CLI mode
+- One design goal: visible, reviewable cleanup behavior with conservative defaults
 
-## What It Does
+## What The Tool Does
 
-The script cleans well-known disposable data sources such as:
+The cleaner targets well-known disposable locations, including:
 
-- User temp folders
+- User temp folders and `%LOCALAPPDATA%\Temp`
 - Windows temp folders
+- Windows Error Reporting cache and queue folders
 - Windows Update download cache
-- Browser cache directories for Chromium-based browsers and Firefox
-- Common app caches such as Discord, VS Code, Spotify, Telegram Desktop cache folders, and Stremio cache-like folders
+- Chromium browser caches for Chrome, Edge, and Brave
+- Firefox cache directories
+- App caches for Discord, VS Code, Spotify, Telegram Desktop, and Stremio
 - GPU shader caches
 - Windows thumbnail and icon caches
-- Recycle Bin
-- Empty directories inside safe cache-oriented roots
-- Stale junk folders named `cache`, `temp`, `logs`, and similar variants inside safe roots
+- Recycle Bin contents
+- Empty cache-like directories under safe roots
+- Stale cache, temp, and log folders inside approved roots
 
-It also supports an optional aggressive mode that adds:
+`Aggressive` mode adds:
 
-- `DISM /StartComponentCleanup`
-- Windows event log clearing
+- `Dism.exe /online /Cleanup-Image /StartComponentCleanup`
+- Windows event-log clearing through `wevtutil.exe`
 
-## What It Does Not Delete
+## How The System Works
+
+The script follows a predictable runtime flow:
+
+1. It resolves protected paths and system cleanup roots.
+2. It checks whether the current PowerShell session is elevated.
+3. If elevation is required, it relaunches itself through the normal Windows UAC prompt.
+4. It shows the interactive console menu or runs the selected `-Mode`.
+5. It processes cleanup steps in a fixed order and prints live command-style logs.
+6. It calculates before-and-after disk free space and prints a run summary.
+
+The cleanup pipeline is ordered to keep the operator informed:
+
+1. System temp, crash, and update-related caches
+2. Chromium browser caches
+3. Firefox caches
+4. Selected application caches
+5. GPU, thumbnail, and icon caches
+6. Recycle Bin
+7. Empty and stale cache-like folders
+8. Optional aggressive maintenance tasks
+
+The current console interface is designed to behave like a small terminal application:
+
+- Centered ASCII title banner
+- Status panel with mode, free space, protected paths, and last-run recap
+- Boxed main menu and post-run actions
+- Persistent logs after execution so the user can inspect exactly what happened
+
+## Safety Boundaries
+
+This project is designed around scoped cleanup, not broad deletion.
 
 By default, the script does not target:
 
 - `Downloads`
-- Documents, Desktop, Pictures, Music, Videos
-- Source code repositories
-- Arbitrary folders outside the defined cleanup roots
-- Browser profiles as a whole
-- Registry keys
+- Documents, Desktop, Pictures, Music, or Videos
+- Source-code repositories as a general class
 - Installed applications
-- User accounts, credentials, or saved passwords as a direct target
+- Registry keys
+- Browser profiles as whole directories
+- Credentials, passwords, or accounts as direct cleanup targets
+- Arbitrary folders outside the approved cleanup roots
 
-The stale-folder cleanup is limited to safe roots and only removes folders whose names strongly indicate disposable cache or temporary data. It does not sweep arbitrary project directories.
+Safety controls include:
 
-## Safety Model
+- Automatic exclusion of `Downloads`
+- Additional protected paths through `-ExtraExcludePath`
+- `Preview` mode for dry-run execution
+- Visible step-by-step logs
+- Narrow targeting of known cache and temporary paths
+- Optional aggressive actions instead of default aggressive behavior
 
-This project is built around conservative cleanup, not “delete everything” behavior.
+Important operational notes:
 
-Safety controls:
-
-- `Downloads` is excluded automatically for every user.
-- Additional paths can be protected with `-ExtraExcludePath`.
-- A `Preview` mode shows what would be processed before any deletion happens.
-- The menu keeps the terminal open after each run so the operator can inspect logs.
-- Only built-in Windows tooling is used for elevated system operations.
-- Cleanup scope is limited to known cache, temp, update, crash, and shell-cache locations.
-
-Important caveats:
-
-- Some applications store useful-but-regenerable data in cache folders. Clearing those folders can sign the app out of transient sessions, remove local thumbnails, or force the app to rebuild caches.
-- Aggressive mode is more disruptive than standard mode. Use it intentionally.
-- The script uses administrator elevation because some system cleanup targets require it.
-
-## Security Notes
-
-The script does not:
-
-- Upload files
-- Call external web APIs
-- Add scheduled tasks
-- Modify startup entries
-- Write to the registry as part of normal operation
-- Execute arbitrary downloaded code
-
-The script does:
-
-- Request elevation through the normal Windows UAC flow
-- Use PowerShell file operations to remove targeted cache data
-- Stop and restart a small set of Windows services temporarily when cleaning the Windows Update download cache
-- Call `Dism.exe` and `wevtutil.exe` only in aggressive mode
-
-If you are distributing this publicly, users should still review the script before running it with administrator rights. `Preview` mode is the safest first run.
-
-For a shorter security-specific summary, see [SECURITY.md](SECURITY.md).
-
-## Requirements
-
-- Windows
-- PowerShell 5.1 or newer
-- Administrator approval through UAC
-
-## Usage
-
-Interactive menu:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1
-```
-
-Standard run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard
-```
-
-Aggressive run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Aggressive
-```
-
-Preview / dry run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview
-```
-
-Protect extra paths:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview -ExtraExcludePath 'D:\Backups','E:\PortableApps'
-```
-
-Run without the final pause in direct CLI mode:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard -NoPause
-```
+- Some applications will rebuild caches on next launch.
+- Some applications may lose thumbnails, transient sessions, or offline cache data.
+- `Aggressive` mode is intentionally more disruptive than `Standard`.
+- Administrator rights are required because some system-owned targets cannot be accessed otherwise.
 
 ## Modes
 
-- `Menu`: shows the interactive terminal UI
-- `Standard`: runs the normal cleanup set
-- `Aggressive`: runs the normal cleanup set plus component-store cleanup and event-log clearing
-- `Preview`: prints intended actions without deleting anything
+- `Menu`: interactive console menu
+- `Standard`: regular cleanup scope
+- `Aggressive`: standard scope plus component-store cleanup and event-log clearing
+- `Preview`: dry run with no file deletion
 
 ## Cleanup Scope
 
-The script primarily operates inside:
+The cleaner primarily operates inside these roots:
 
 - `%TEMP%`
 - `%LOCALAPPDATA%`
@@ -146,45 +108,88 @@ The script primarily operates inside:
 - `%SystemRoot%\Temp`
 - `%SystemRoot%\SoftwareDistribution\Download`
 
-Within those roots it targets named cache and temporary folders rather than blindly deleting everything.
+Within those areas, it removes named cache, temp, update, crash, and shell-cache data instead of sweeping entire trees blindly.
 
-## First 30 Minutes
+## Requirements
 
-If this is your first time using the project:
+- Windows
+- PowerShell 5.1 or newer
+- Permission to approve UAC elevation
 
-1. Open `SystemCleaner.ps1` and read the top-level parameters.
-2. Run `Preview` mode.
-3. Review the live command logs in the terminal.
-4. Add any custom protected folders with `-ExtraExcludePath`.
-5. Run `Standard` mode if the preview looks correct.
-6. Use `Aggressive` mode only if you specifically want the heavier system cleanup.
+## Usage
+
+Launch the interactive console:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1
+```
+
+Run the standard cleanup directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard
+```
+
+Run the aggressive cleanup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Aggressive
+```
+
+Preview the cleanup plan without deleting anything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview
+```
+
+Protect additional paths:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview -ExtraExcludePath 'D:\Backups','E:\PortableApps'
+```
+
+Skip the final pause in non-menu runs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard -NoPause
+```
+
+## Recommended First Run
+
+For a first-time operator:
+
+1. Review `SystemCleaner.ps1`.
+2. Run `Preview` mode first.
+3. Read the live logs and confirm the scope.
+4. Add any additional protected paths with `-ExtraExcludePath`.
+5. Run `Standard` mode.
+6. Use `Aggressive` mode only when the heavier maintenance tradeoff is acceptable.
 
 ## Troubleshooting
 
-If the script reopens with a UAC prompt:
+If the tool reopens with a UAC prompt:
 
-- That is expected. Some cleanup targets require administrator rights.
+- That is expected for system-level cleanup targets.
 
-If a cache folder cannot be removed:
+If some cache folders cannot be removed:
 
 - The owning application may still be running.
-- Close the application and run the cleaner again.
+- Close the application and rerun the cleaner.
 
-If disk space does not change much:
+If reported free space changes only slightly:
 
-- Many caches are already small or already empty.
-- Use `Preview` mode to verify what the script finds.
+- The targeted caches may already be small or empty.
+- Use `Preview` mode to confirm what the script plans to touch.
 
 If an application rebuilds data on next launch:
 
-- That is normal for cache cleanup.
-
-If you want to protect additional folders:
-
-- Pass them with `-ExtraExcludePath`.
+- That is normal behavior for cache cleanup.
 
 ## Development Notes
 
-- The project is intentionally a single-file PowerShell tool.
-- The menu is interactive, but the script also supports direct non-interactive execution through `-Mode`.
-- Logs are printed live so operators can see exactly what the script attempted to do.
+- The project is intentionally kept as a single PowerShell script for inspectability.
+- The interface is interactive, but every mode can also be run directly from the CLI.
+- Logs are emitted in real time so operators can audit actions during execution.
+- The summary section reports duration, before/after free space, and processed cleanup counts.
+
+For security-specific guidance, see [SECURITY.md](SECURITY.md).

@@ -54,10 +54,12 @@ The cleanup pipeline is ordered to keep the operator informed:
 
 The current console interface is designed to behave like a small terminal application:
 
-- Centered ASCII title banner
-- Status panel with mode, free space, protected paths, and last-run recap
+- Compact fixed-width ASCII title banner
+- Status panel with mode, free space, protected-path summary, last-run recap, and run meter
+- ASCII step meter plus spinner-style progress updates during cleanup
 - Boxed main menu and post-run actions
 - Persistent logs after execution so the user can inspect exactly what happened
+- ASCII-only UI elements so Windows PowerShell consoles do not render broken glyphs
 
 ## Safety Boundaries
 

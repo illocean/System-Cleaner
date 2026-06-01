@@ -4,7 +4,8 @@ param(
     [string]$Mode = 'Menu',
     [string[]]$ExtraExcludePath = @(),
     [switch]$NoPause,
-    [switch]$SkipBootstrap
+    [switch]$SkipBootstrap,
+    [string]$LogFile = ''
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -24,6 +25,16 @@ $script:CategorySizes    = @{}
 $script:OrphanReport     = @()
 $script:SkippedItems     = @()
 $script:RunningProcesses = $null
+$script:ActiveStepName   = $null
+$script:ActiveStepPct    = 0
+$script:UiStopwatch      = [System.Diagnostics.Stopwatch]::StartNew()
+$script:LastUiMs         = [long]0
+$script:UiTickMs         = 250
+$script:SpinnerFrames    = @('|','/','-','\')
+$script:SpinnerIndex     = 0
+$script:LogFilePath      = ''
+$script:HealthCache      = $null   # { Score, Signals, Timestamp } for 30s cache
+$script:LastOrphanRisks  = $null   # { Count, HighCount, MedCount, LowCount }
 
 # ════════════════════════════════════════════════════════════════
 #  C# COMPILED ACCELERATORS (FOR NATIVE SPEED)
@@ -172,6 +183,147 @@ function Test-IsExcludedPath {
         }
     }
     $false
+}
+
+# ── Smart features ──
+
+function Get-OrphanRiskScore {
+    param(
+        [string]$Name,
+        [long]$SizeBytes,
+        [int]$DaysStale,
+        [string]$PathSuffix,
+        [string[]]$InstalledNames = @(),
+        [string[]]$RunningNames = @()
+    )
+
+    # Staleness 0–40
+    $staleness = if ($DaysStale -ge 365) { 40 } elseif ($DaysStale -ge 90) { 30 } elseif ($DaysStale -ge 30) { 15 } else { 0 }
+
+    # Size impact 0–20
+    $sizeMB = $SizeBytes / 1MB
+    $sizeScore = if ($sizeMB -ge 500) { 20 } elseif ($sizeMB -ge 200) { 15 } elseif ($sizeMB -ge 50) { 10 } elseif ($sizeMB -ge 1) { 5 } else { 0 }
+
+    # Install signal -30–0
+    $installSignal = 0
+    $nameLower = $Name.ToLowerInvariant()
+    $foundExact = $false; $foundPartial = $false
+    foreach ($n in $InstalledNames) {
+        $nl = $n.ToLowerInvariant()
+        if ($nl -eq $nameLower) { $foundExact = $true; break }
+        if ($nl.Contains($nameLower) -or $nameLower.Contains($nl)) { $foundPartial = $true }
+    }
+    if (-not $foundExact) {
+        foreach ($n in $RunningNames) {
+            $nl = $n.ToLowerInvariant()
+            if ($nl -eq $nameLower) { $foundExact = $true; break }
+            if ($nl.Contains($nameLower) -or $nameLower.Contains($nl)) { $foundPartial = $true }
+        }
+    }
+    $installSignal = if ($foundExact) { -30 } elseif ($foundPartial) { -10 } else { 0 }
+
+    # Path trust 0–10
+    $pathScore = if ($PathSuffix -match 'ProgramData') { 5 } elseif ($PathSuffix -match 'Local') { 3 } else { 0 }
+
+    $total = [Math]::Max(0, $staleness + $sizeScore + $installSignal + $pathScore)
+    $level = if ($total -le 15) { 'Low' } elseif ($total -le 40) { 'Medium' } else { 'High' }
+    $color = if ($total -le 15) { 'Green' } elseif ($total -le 40) { 'Yellow' } else { 'Red' }
+
+    [pscustomobject]@{
+        Score        = $total
+        RiskLevel    = $level
+        Color        = $color
+        Staleness    = $staleness
+        SizeScore    = $sizeScore
+        InstallSig   = $installSignal
+        PathTrust    = $pathScore
+    }
+}
+
+function Get-HealthScore {
+    $now = Get-Date
+    if ($script:HealthCache -and ($now -lt $script:HealthCache.Expires)) {
+        return $script:HealthCache.Data
+    }
+
+    # Signal 1: Disk pressure (30 pts)
+    $free = Get-FreeSpaceInfo
+    $diskPct = [math]::Round(($free.MB / [math]::Max(1, ($free.MB + 1))) * 100)
+    $diskScore = if ($diskPct -ge 30) { 30 } elseif ($diskPct -ge 20) { 25 } elseif ($diskPct -ge 10) { 15 } elseif ($diskPct -ge 5) { 5 } else { 0 }
+
+    # Signal 2: Temp accumulation (25 pts)
+    $tempTotal = 0L
+    foreach ($tp in @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'))) {
+        $tempTotal += Get-DirectorySize $tp
+    }
+    $tempMB = $tempTotal / 1MB
+    $tempScore = if ($tempMB -lt 500) { 25 } elseif ($tempMB -lt 2000) { 18 } elseif ($tempMB -lt 5000) { 10 } elseif ($tempMB -lt 10000) { 5 } else { 0 }
+
+    # Signal 3: Browser cache age (20 pts)
+    $browserScore = 20
+    $browserRoots = @(
+        (Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data\Default\Cache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data\Default\Cache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'BraveSoftware\Brave-Browser\User Data\Default\Cache')
+    )
+    $oldestCacheDays = 0
+    foreach ($br in $browserRoots) {
+        if (Test-Path $br) {
+            $age = ((Get-Date) - (Get-Item $br -EA SilentlyContinue).LastWriteTime).TotalDays
+            if ($age -gt $oldestCacheDays) { $oldestCacheDays = [int]$age }
+        }
+    }
+    $browserScore = if ($oldestCacheDays -lt 7) { 20 } elseif ($oldestCacheDays -lt 30) { 14 } elseif ($oldestCacheDays -lt 90) { 8 } else { 0 }
+
+    # Signal 4: Orphan risk (25 pts) — from cached last run data
+    $orphanScore = 25
+    $orphanInfo = $script:LastOrphanRisks
+    if ($orphanInfo) {
+        $orphanScore = if ($orphanInfo.HighCount -eq 0 -and $orphanInfo.MedCount -lt 3) { 25 }
+                    elseif ($orphanInfo.HighCount -le 2 -or $orphanInfo.MedCount -le 5) { 15 }
+                    elseif ($orphanInfo.HighCount -le 5 -or $orphanInfo.MedCount -le 10) { 5 }
+                    else { 0 }
+    }
+
+    $totalScore = $diskScore + $tempScore + $browserScore + $orphanScore
+    $grade = if ($totalScore -ge 85) { 'Excellent' } elseif ($totalScore -ge 65) { 'Good' } elseif ($totalScore -ge 40) { 'Fair' } else { 'Needs attention' }
+    $gradeColor = if ($totalScore -ge 85) { 'Green' } elseif ($totalScore -ge 65) { 'Cyan' } elseif ($totalScore -ge 40) { 'Yellow' } else { 'Red' }
+
+    $result = [pscustomobject]@{
+        Score       = $totalScore
+        Grade       = $grade
+        GradeColor  = $gradeColor
+        DiskScore   = $diskScore
+        TempScore   = $tempScore
+        BrowserScore = $browserScore
+        OrphanScore = $orphanScore
+        DiskPct     = $diskPct
+        TempMB      = [math]::Round($tempMB)
+        BrowserAge  = $oldestCacheDays
+        OrphanInfo  = $orphanInfo
+    }
+
+    $script:HealthCache = @{ Data = $result; Expires = $now.AddSeconds(30) }
+    $result
+}
+
+function Show-HealthDetail {
+    $h = Get-HealthScore
+    Clear-Host
+    Write-Host ''
+    Write-CenteredLine '═══════════════════ System Health Report ═══════════════════' $h.GradeColor
+    Write-Host ''
+    Write-Panel @(
+        "Score : $($h.Score)/100 $($h.Grade)"
+        ''
+        "Disk Pressure   : $($h.DiskScore)/30  ($($h.DiskPct)% free)"
+        "Temp/Cache      : $($h.TempScore)/25  ($($h.TempMB) MB)"
+        "Browser Cache   : $($h.BrowserScore)/20 ($($h.BrowserAge)d oldest)"
+        "Orphan Risk     : $($h.OrphanScore)/25 $(if($h.OrphanInfo){'('+$h.OrphanInfo.HighCount+' high, '+$h.OrphanInfo.MedCount+' medium)'}else{'(no orphan data yet)'})"
+    ) -BorderColor $h.GradeColor -TextColor 'White' -MinWidth 60 -MaxWidth 88
+    Write-Host ''
+    Write-Log 'Next full evaluation in 30 seconds.' 'INFO'
+    Write-Host ''
 }
 
 # ── System locations ──
@@ -371,20 +523,45 @@ function Write-Log {
     $ts = Get-Date -Format 'HH:mm:ss'
     
     $prefix, $color = switch($Level) {
-        'OK'   { ' ✔ ', 'Green' }
-        'WARN' { ' ⚠ ', 'Yellow' }
-        'ERR'  { ' ✖ ', 'Red' }
+        'OK'   { ' [+] ', 'Green' }
+        'WARN' { ' [!] ', 'Yellow' }
+        'ERR'  { ' [X] ', 'Red' }
         'CMD'  { ' > ', 'DarkGray' }
-        'STEP' { ' ► ', 'Cyan' }
-        'SIZE' { ' ▼ ', 'Magenta' }
-        default{ ' i ', 'Gray' }
+        'STEP' { ' >> ', 'Cyan' }
+        'SIZE' { ' vv ', 'Magenta' }
+        default{ ' [i] ', 'Gray' }
     }
     
     Write-Host "[$ts]$prefix $Message" -ForegroundColor $color
+    if ($script:LogFilePath) {
+        $line = "[$ts][$Level] $Message"
+        try { Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8 -EA SilentlyContinue } catch {}
+    }
+}
+
+function Update-UiTicker {
+    param([string]$CurrentOperation)
+    if (-not $script:ActiveStepName) { return }
+    if ($script:TotalSteps -le 0) { return }
+
+    $nowMs = [long]$script:UiStopwatch.ElapsedMilliseconds
+    if (($nowMs - $script:LastUiMs) -lt $script:UiTickMs) { return }
+    $script:LastUiMs = $nowMs
+
+    $frame = $script:SpinnerFrames[$script:SpinnerIndex % $script:SpinnerFrames.Count]
+    $script:SpinnerIndex++
+
+    $op = if ([string]::IsNullOrWhiteSpace($CurrentOperation)) { $script:ActiveStepName } else { $CurrentOperation }
+    $bar = New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 10
+    $status = "[${frame}] $bar $op"
+
+    Write-Progress -Activity 'SystemCleaner tuning performance...' -Status $status -PercentComplete $script:ActiveStepPct -Id 1
+    $Host.UI.RawUI.WindowTitle = "System Cleaner v2 $frame $($script:StepIndex)/$($script:TotalSteps) $($script:ActiveStepName)"
 }
 
 function Write-CommandLog {
     param([string]$Verb,[string]$Target)
+    if ($Verb) { Update-UiTicker -CurrentOperation $Verb }
     if ([string]::IsNullOrWhiteSpace($Target)) { Write-Log $Verb 'CMD'; return }
     Write-Log "$Verb $Target" 'CMD'
 }
@@ -400,11 +577,80 @@ function Get-DisplayText { param([string]$Text,[int]$MaxWidth)
     $Text.Substring(0,$MaxWidth-3)+'...'
 }
 
+function Get-PathLabel {
+    param([string]$Path)
+    $resolved = Resolve-FullPath $Path
+    if (-not $resolved) { return $null }
+    $leaf = Split-Path -Path $resolved -Leaf
+    if ($leaf) { return $leaf }
+    $resolved
+}
+
+function Format-CompactList {
+    param([string[]]$Items,[int]$MaxItems=3)
+    $labels = @(
+        $Items |
+        Where-Object { $_ } |
+        ForEach-Object { Get-PathLabel $_ } |
+        Where-Object { $_ } |
+        Select-Object -Unique
+    )
+    if (-not $labels) { return 'none' }
+    $shown = @($labels | Select-Object -First $MaxItems)
+    $extra = $labels.Count - $shown.Count
+    if ($extra -gt 0) { return ('{0} (+{1} more)' -f ($shown -join ', '), $extra) }
+    $shown -join ', '
+}
+
+function New-AsciiBar {
+    param([int]$Value,[int]$Total,[int]$Width=18)
+    if ($Width -lt 1) { $Width = 1 }
+    $safeValue = [Math]::Max(0, $Value)
+    $safeTotal = [Math]::Max(0, $Total)
+    if ($safeTotal -le 0) { return ('[{0}] 0%' -f ('.' * $Width)) }
+    if ($safeValue -gt $safeTotal) { $safeValue = $safeTotal }
+
+    $filled = [Math]::Min($Width, [int][Math]::Round(($safeValue / [double]$safeTotal) * $Width))
+    $empty  = [Math]::Max(0, $Width - $filled)
+    $pct    = [int][Math]::Round(($safeValue / [double]$safeTotal) * 100)
+
+    ('[{0}{1}] {2}%' -f ('#' * $filled), ('.' * $empty), $pct)
+}
+
+function Get-AppLogoLines {
+    @(
+        ' .------------------------------------------------------------. '
+        ' |   _____           __                                       | '
+        ' |  / ___/__ _____  / /____ ___  ___ ______                   | '
+        ' | / /__/ _ `/ __/ / __/ -_) _ \/ -_) __/                     | '
+        ' | \___/\_,_/_/    \__/\__/_//_/\__/_/  SYSTEM CLEANER        | '
+        ' `------------------------------------------------------------` '
+    )
+}
+
+function Get-ModeColor {
+    param([string]$Mode)
+    switch ($Mode) {
+        'Standard'   { 'Green' }
+        'Aggressive' { 'Yellow' }
+        'Preview'    { 'DarkGray' }
+        default      { 'DarkCyan' }
+    }
+}
+
 function Write-CenteredLine { param([string]$Text,[string]$ForegroundColor='White')
     $cw = Get-ConsoleWidth
     $rt = Get-DisplayText $Text $cw
     $pad = [Math]::Max(0,[int](($cw-$rt.Length)/2))
     Write-Host ((' '*$pad)+$rt) -ForegroundColor $ForegroundColor
+}
+
+function Write-SectionHeader {
+    param([string]$Title,[string]$ForegroundColor='Cyan')
+    $cw = Get-ConsoleWidth
+    $prefix = "-- $Title "
+    $line = $prefix + ('-' * [Math]::Max(0, $cw - $prefix.Length))
+    Write-Host (Get-DisplayText $line $cw) -ForegroundColor $ForegroundColor
 }
 
 function Write-Panel {
@@ -424,31 +670,39 @@ function Write-Panel {
 }
 
 function Show-AppLogo {
-    @(
-        '   _____           _                  _____ _                           '
-        '  / ____|         | |                / ____| |                          '
-        ' | (___  _   _ ___| |_ ___ _ __     | |    | | ___  __ _ _ __   ___ _ __ '
-        '  \___ \| | | / __| __/ _ \ ''_ \    | |    | |/ _ \/ _` | ''_ \ / _ \ ''__|'
-        '  ____) | |_| \__ \ ||  __/ | | |   | |____| |  __/ (_| | | | |  __/ |   '
-        ' |_____/ \__, |___/\__\___|_| |_|    \_____|_|\___|\\__,_|_| |_|\___|_|   '
-        '          __/ |                         v2.1 - Extreme Performance        '
-        '         |___/                                                            '
-    ) | ForEach-Object { Write-CenteredLine $_ 'Cyan' }
-    Write-CenteredLine '================================================================' 'DarkCyan'
-    Write-CenteredLine 'C# Accelerated Engine | Next-Gen Maintenance | Fast Scan UI' 'DarkGray'
+    $logo = Get-AppLogoLines
+    $colors = @('DarkCyan','Cyan','Cyan','White','Cyan','DarkCyan')
+    for ($index = 0; $index -lt $logo.Count; $index++) {
+        $color = $colors[[Math]::Min($index, $colors.Count - 1)]
+        Write-CenteredLine $logo[$index] $color
+    }
+    Write-CenteredLine 'fixed-width ASCII banner | PowerShell-safe | no module' 'DarkGray'
 }
 
 function Show-Header {
     Clear-Host; Write-Host ''; Show-AppLogo; Write-Host ''
+    $modeColor = Get-ModeColor $script:CurrentModeName
     $free = Get-FreeSpaceInfo
-    $ml = if($script:CurrentModeName -eq 'Menu'){'Interactive menu'}else{$script:CurrentModeName}
-    $lr = if($script:LastRunSummary){"Mode $($script:LastRunSummary.Mode) | $($script:LastRunSummary.DurationSeconds)s | $(Format-FileSize $script:LastRunSummary.TotalFreed)"}else{'No cleanup yet'}
+    $ml = if($script:CurrentModeName -eq 'Menu'){'INTERACTIVE'}else{$script:CurrentModeName.ToUpperInvariant()}
+    $lr = if($script:LastRunSummary){"$($script:LastRunSummary.Mode) | $($script:LastRunSummary.DurationSeconds)s | $(Format-FileSize $script:LastRunSummary.TotalFreed)"}else{'none yet'}
+    $protected = Format-CompactList -Items ($script:ExcludedPaths | Sort-Object) -MaxItems 3
+    $runBar = if($script:CurrentModeName -eq 'Menu'){'[..................] idle'}else{New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 18}
+    $healthLine = 'Health     : not available'
+    try {
+        $h = Get-HealthScore
+        $barChar = [char]0x2588
+        $filled = [math]::Floor($h.Score / 10)
+        $hb = "$($barChar.ToString() * $filled)$('.' * (10 - $filled))"
+        $healthLine = "Health     : $hb $($h.Score)/100 $($h.Grade)"
+    } catch { $healthLine = 'Health     : unavailable' }
     Write-Panel @(
-        "Session mode     : $ml"
-        "Free space       : $($free.MB) MB ($($free.GB) GB)"
-        "Protected paths  : $(($script:ExcludedPaths | Sort-Object) -join ', ')"
-        "Last run         : $lr"
-    ) -BorderColor 'DarkCyan' -TextColor 'White' -MinWidth 68 -MaxWidth 100
+        "Mode       : $ml"
+        "Free       : $($free.MB) MB ($($free.GB) GB)"
+        "Protected  : $protected"
+        $healthLine
+        "Last run   : $lr"
+        "Run bar    : $runBar"
+    ) -BorderColor $modeColor -TextColor 'White' -MinWidth 62 -MaxWidth 92
     Write-Host ''
 }
 
@@ -463,14 +717,15 @@ function Show-Menu {
         Write-Panel @(
             'MAIN MENU'
             ''
-            '[1] Standard clean    Temp, browser, app caches, dev tools, orphans'
-            '[2] Aggressive clean  + DISM, event logs, prefetch, font cache'
-            '[3] Preview run       Dry-run: shows what would be cleaned'
-            '[4] Scan & Manage orphans   Detect and optionally delete leftover folders'
+            '[1] Standard    temp, browsers, apps, dev caches, orphans'
+            '[2] Aggressive  standard + DISM + event logs + prefetch'
+            '[3] Preview     show the cleanup plan only'
+            '[4] Orphans     scan leftovers and review deletions'
+            '[5] Health      system health dashboard with details'
             ''
-            'Safety: active browsers and selected apps are skipped instead of force-cleaned'
+            'Busy browsers and selected apps are skipped for safety.'
             '[Q] Quit'
-        ) -BorderColor 'Cyan' -TextColor 'White' -MinWidth 76 -MaxWidth 108
+        ) -BorderColor 'Cyan' -TextColor 'White' -MinWidth 64 -MaxWidth 88
         Write-Host ''
         Write-CenteredLine 'Choose a mode and press Enter.' 'DarkGray'
         Write-Host ''
@@ -480,6 +735,7 @@ function Show-Menu {
             '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '4' { Show-Header; $script:IsPreview=$false; Start-Step 'Orphan folder scan'; $o=Find-OrphanFolders -InteractiveDelete; Finish-Step "Orphan check complete"; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
+            '5' { Show-HealthDetail; [void](Read-Host '[Press Enter to return to Menu]') }
             'Q' { return }
             default { Write-Host 'Invalid.' -ForegroundColor Yellow; Start-Sleep -Milliseconds 500 }
         }
@@ -490,18 +746,23 @@ function Show-Menu {
 function Start-Step { param([string]$Name)
     $script:StepIndex++
     Write-Host ''
-    Write-Log "[Step ${script:StepIndex} of ${script:TotalSteps}] $Name" 'STEP'
+    $stepTag = if ($script:TotalSteps -gt 0) { '[{0:D2}/{1:D2}]' -f $script:StepIndex, $script:TotalSteps } else { '[--/--]' }
+    $stepBar = New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 12
+    Write-Log "$stepTag $stepBar $Name" 'STEP'
     
     # Progress bar and UI
     if ($script:TotalSteps -gt 0) {
         $pct = [Math]::Max(1,[int](($script:StepIndex / $script:TotalSteps) * 100))
-        Write-Progress -Activity 'SystemCleaner tuning performance...' -Status "Step $($script:StepIndex): $Name" -PercentComplete $pct -Id 1
-        $Host.UI.RawUI.WindowTitle = "System Cleaner v2 - $Name [$pct%]"
+        $script:ActiveStepName = $Name
+        $script:ActiveStepPct  = $pct
+        $script:LastUiMs       = -999999
+        Update-UiTicker
     }
 }
 
 function Finish-Step { param([string]$Summary)
     Write-Log $Summary 'OK'
+    $script:ActiveStepName = $null
     if ($script:StepIndex -ge $script:TotalSteps -and $script:TotalSteps -gt 0) {
         Write-Progress -Activity 'SystemCleaner runs deep sweep' -Completed -Id 1
         $Host.UI.RawUI.WindowTitle = 'System Cleaner v2 - Sweep Complete'
@@ -642,6 +903,8 @@ function Clear-ChromiumCaches {
         'Chrome' { @('chrome') }
         'Edge'   { @('msedge') }
         'Brave'  { @('brave') }
+        'Opera'  { @('opera') }
+        'Vivaldi'{ @('vivaldi') }
         default  { @() }
     }
     if ($processNames.Count -gt 0 -and (Test-AnyProcessRunning -RunningProcesses $running -Names $processNames)) {
@@ -830,6 +1093,57 @@ function Clear-AppCaches {
     $dio = Join-EnvPath 'APPDATA' 'draw.io\Cache'
     if ($dio -and (Measure-AndClear $dio -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: draw.io cache'; $n++ }
 
+    # Slack
+    foreach ($sp in @(
+        (Join-EnvPath 'APPDATA' 'Slack\Cache'),
+        (Join-EnvPath 'APPDATA' 'Slack\Service Worker\CacheStorage'),
+        (Join-EnvPath 'APPDATA' 'Slack\Code Cache'),
+        (Join-EnvPath 'APPDATA' 'Slack\GPUCache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'Slack\logs')
+    )) {
+        if ($sp -and (Measure-AndClear $sp -EnsureDirectory -Category $cat)) { Write-Log "Cleaned Slack: $sp"; $n++ }
+    }
+
+    # Microsoft Teams
+    foreach ($tp in @(
+        (Join-EnvPath 'APPDATA' 'Microsoft\Teams\Cache'),
+        (Join-EnvPath 'APPDATA' 'Microsoft\Teams\Code Cache'),
+        (Join-EnvPath 'APPDATA' 'Microsoft\Teams\GPUCache'),
+        (Join-EnvPath 'APPDATA' 'Microsoft\Teams\logs'),
+        (Join-EnvPath 'APPDATA' 'Microsoft\Teams\blob_storage'),
+        (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Teams\old_weblogs')
+    )) {
+        if ($tp -and (Measure-AndClear $tp -EnsureDirectory -Category $cat)) { Write-Log "Cleaned Teams: $tp"; $n++ }
+    }
+
+    # WhatsApp Desktop
+    foreach ($wp in @(
+        (Join-EnvPath 'APPDATA' 'WhatsApp\Cache'),
+        (Join-EnvPath 'APPDATA' 'WhatsApp\Code Cache'),
+        (Join-EnvPath 'APPDATA' 'WhatsApp\GPUCache'),
+        (Join-EnvPath 'APPDATA' 'WhatsApp\Service Worker\CacheStorage')
+    )) {
+        if ($wp -and (Measure-AndClear $wp -EnsureDirectory -Category $cat)) { Write-Log "Cleaned WhatsApp"; $n++ }
+    }
+
+    # Windows Terminal
+    $wt = Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows Terminal\Cache'
+    if ($wt -and (Measure-AndClear $wt -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Windows Terminal cache'; $n++ }
+
+    # Notion
+    foreach ($np in @(
+        (Join-EnvPath 'APPDATA' 'Notion\Cache'),
+        (Join-EnvPath 'APPDATA' 'Notion\Code Cache'),
+        (Join-EnvPath 'APPDATA' 'Notion\GPUCache'),
+        (Join-EnvPath 'APPDATA' 'Notion\blob_storage')
+    )) {
+        if ($np -and (Measure-AndClear $np -EnsureDirectory -Category $cat)) { Write-Log "Cleaned: Notion"; $n++ }
+    }
+
+    # Figma
+    $fg = Join-EnvPath 'APPDATA' 'Figma\Cache'
+    if ($fg -and (Measure-AndClear $fg -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Figma cache'; $n++ }
+
     $n
 }
 
@@ -891,6 +1205,42 @@ function Clear-DevCaches {
     # Firebase heartbeat
     $fb = Join-EnvPath 'LOCALAPPDATA' 'firebase-heartbeat'
     if ($fb -and (Measure-AndClear $fb -EnsureDirectory -Category $cat)) { $n++ }
+
+    # Yarn cache (v1 berry)
+    $yarn = Join-EnvPath 'LOCALAPPDATA' 'Yarn\Cache'
+    if (-not $yarn) { $yarn = Join-EnvPath 'APPDATA' 'Yarn\Cache' }
+    if ($yarn -and (Measure-AndClear $yarn -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Yarn cache'; $n++ }
+    $yarn2 = Join-EnvPath 'LOCALAPPDATA' 'Yarn\Berry\cache'
+    if ($yarn2 -and (Measure-AndClear $yarn2 -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Yarn Berry cache'; $n++ }
+
+    # Go module cache
+    $go = Join-EnvPath 'USERPROFILE' 'go\pkg\mod'
+    if ($go -and (Test-Path $go)) {
+        $goSize = Get-DirectorySize $go
+        if ($goSize -gt 0) {
+            Write-Log "Go module cache: $(Format-FileSize $goSize) - SKIPPED (run 'go clean -modcache' to remove safely)" 'WARN'
+        }
+    }
+
+    # Rust/Cargo cache
+    foreach ($cp in @(
+        (Join-EnvPath 'USERPROFILE' '.cargo\registry\cache'),
+        (Join-EnvPath 'USERPROFILE' '.cargo\git\db')
+    )) {
+        if ($cp -and (Measure-AndClear $cp -EnsureDirectory -Category $cat)) { Write-Log "Cleaned: Cargo $([IO.Path]::GetFileName($cp))"; $n++ }
+    }
+
+    # Bun cache
+    $bun = Join-EnvPath 'USERPROFILE' '.bun\install\cache'
+    if ($bun -and (Measure-AndClear $bun -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Bun cache'; $n++ }
+
+    # Flutter/Dart pub cache
+    $pub = Join-EnvPath 'LOCALAPPDATA' 'Pub\Cache'
+    if ($pub -and (Measure-AndClear $pub -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Dart pub cache'; $n++ }
+
+    # Docker (Windows Docker Desktop)
+    $dk = Join-EnvPath 'APPDATA' 'Docker\tmp'
+    if ($dk -and (Measure-AndClear $dk -EnsureDirectory -Category $cat)) { Write-Log 'Cleaned: Docker tmp'; $n++ }
 
     $n
 }
@@ -1032,7 +1382,14 @@ function Find-OrphanFolders {
       'PlaceholderTileLogoFolder','Comms','firebase-heartbeat','cloud-code',
       'google-vscode-extension','github-copilot','vscode-sqltools','prisma-nodejs',
       'checkpoint-nodejs','ms-playwright','ms-playwright-go',
-      '.IdentityService','.certifi'
+      '.IdentityService','.certifi',
+      'GitHub','Slack','Teams','Discord','Spotify','Telegram Desktop',
+      'Notion','Figma','Zoom','Viber','Adobe','obs-studio','qBittorrent',
+      'draw.io','Stremio','Docker','Canva','Postman','Insomnia',
+      '1Password','Bitwarden','Signal','Sublime Text','GitHubDesktop',
+      'OpenVPN','Tailscale','Cloudflare','GitExtensions','Sourcetree',
+      'MongoDBCompass','Tableau','PyCharm','IntelliJ','Rider','WebStorm',
+      'Goland','CLion','DataGrip','RubyMine','AppCode','PhpStorm'
     ) | ForEach-Object { [void]$safeNames.Add($_) }
 
     # Scan LocalAppData and AppData\Roaming for orphans
@@ -1050,24 +1407,38 @@ function Find-OrphanFolders {
             if ($daysSince -lt 30) { return }
 
             $dirSize = Get-DirectorySize $_.FullName
+            $baseEnvLabel = if ($baseEnv -eq 'LOCALAPPDATA') { 'Local' } else { 'Roaming' }
+            $risk = Get-OrphanRiskScore -Name $name -SizeBytes $dirSize -DaysStale $daysSince -PathSuffix $baseEnvLabel -InstalledNames @($installedNames) -RunningNames $running
             $entry = [pscustomobject]@{
                 Path      = $_.FullName
                 Name      = $name
                 Size      = $dirSize
                 SizeText  = Format-FileSize $dirSize
                 DaysStale = [int]$daysSince
+                RiskScore = $risk.Score
+                RiskLevel = $risk.RiskLevel
+                RiskColor = $risk.Color
             }
             $script:OrphanReport += $entry
-            Write-Log "ORPHAN? $name ($(Format-FileSize $dirSize), $([int]$daysSince)d stale) -> $($_.FullName)" 'WARN'
+            $badge = "[$($risk.RiskLevel.ToUpper().Substring(0,4))]"
+            Write-Log "ORPHAN? $badge $name ($(Format-FileSize $dirSize), $([int]$daysSince)d stale) -> $($_.FullName)" 'WARN'
             $found++
         }
     }
+
+    # Cache risk summary for health dashboard
+    $highC = 0; $medC = 0; $lowC = 0
+    foreach ($e in $script:OrphanReport) { if ($e.RiskLevel -eq 'High') { $highC++ } elseif ($e.RiskLevel -eq 'Medium') { $medC++ } else { $lowC++ } }
+    $script:LastOrphanRisks = [pscustomobject]@{ Count = $found; HighCount = $highC; MedCount = $medC; LowCount = $lowC }
+
+    # Sort by risk descending
+    $script:OrphanReport = $script:OrphanReport | Sort-Object RiskScore -Descending
 
     if ($found -eq 0) {
         Write-Log 'No obvious orphan folders detected.' 'OK'
     } else {
         Write-Host ''
-        Write-Log "$found potential orphan folder(s) found. Review before deleting." 'WARN'
+        Write-Log "$found potential orphan folder(s) found. ($highC high, $medC medium, $lowC low risk)" 'WARN'
         Write-Log 'These folders belong to apps that appear uninstalled and untouched 30+ days.' 'INFO'
 
         if ($InteractiveDelete -and -not $script:IsPreview) {
@@ -1075,8 +1446,9 @@ function Find-OrphanFolders {
             $deleteAll = $false
             $deletedCount = 0
             foreach ($o in $script:OrphanReport) {
+                $badge = "[$($o.RiskLevel.ToUpper().Substring(0,4))]"
                 if (-not $deleteAll) {
-                    $ans = (Read-Host "Delete '$($o.Name)' at $($o.Path)? (y/n/a/q) [n]").Trim().ToLowerInvariant()
+                    $ans = (Read-Host "Delete $badge '$($o.Name)' at $($o.Path)? (y/n/a/q) [n]").Trim().ToLowerInvariant()
                     if ($ans -eq 'q') { break }
                     if ($ans -eq 'a') { $deleteAll = $true }
                     if ($ans -ne 'y' -and $ans -ne 'a') { continue }
@@ -1133,17 +1505,26 @@ function Clear-FontCache {
     $fontPath = Join-Path $script:SysLoc.WindowsRoot 'ServiceProfiles\LocalService\AppData\Local\FontCache'
     if (Test-Path -LiteralPath $fontPath) {
         Write-CommandLog ($(if($script:IsPreview){'PREVIEW'}else{'CLEAR'})) 'Font Cache'
-        if (-not $script:IsPreview) {
-            $stopped = $false
-            try {
-                Stop-Service FontCache -Force -EA SilentlyContinue
-                $stopped = $true
+        $wasRunning = $false
+        try {
+            $svc = Get-Service FontCache -EA SilentlyContinue
+            if ($svc -and $svc.Status -ne 'Stopped') {
+                if (-not $script:IsPreview) {
+                    Write-CommandLog 'STOP' 'FontCache'
+                    Stop-Service FontCache -Force -EA SilentlyContinue
+                    $wasRunning = $true
+                }
+            }
+            if (-not $script:IsPreview) {
                 Get-ChildItem $fontPath -Force -EA SilentlyContinue | ForEach-Object {
                     Remove-Item $_.FullName -Force -EA SilentlyContinue
                 }
             }
-            finally {
-                if ($stopped) { Start-Service FontCache -EA SilentlyContinue }
+        }
+        finally {
+            if ($wasRunning -and -not $script:IsPreview) {
+                Write-CommandLog 'START' 'FontCache'
+                Start-Service FontCache -EA SilentlyContinue
             }
         }
     }
@@ -1216,11 +1597,13 @@ function Invoke-CleanupRun {
     $s1 = Clear-SystemCaches
     Finish-Step "$s1 locations processed"
 
-    Start-Step 'Chromium browser caches (Chrome, Edge, Brave)'
+    Start-Step 'Chromium browser caches (Chrome, Edge, Brave, Opera, Vivaldi)'
     $s2 = 0
     $s2 += Clear-ChromiumCaches (Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data') 'Chrome'
     $s2 += Clear-ChromiumCaches (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data') 'Edge'
     $s2 += Clear-ChromiumCaches (Join-EnvPath 'LOCALAPPDATA' 'BraveSoftware\Brave-Browser\User Data') 'Brave'
+    $s2 += Clear-ChromiumCaches (Join-EnvPath 'APPDATA' 'Opera Software\Opera Stable') 'Opera'
+    $s2 += Clear-ChromiumCaches (Join-EnvPath 'LOCALAPPDATA' 'Vivaldi\User Data') 'Vivaldi'
     Finish-Step "$s2 browser profiles cleaned"
 
     Start-Step 'Firefox caches'
@@ -1285,45 +1668,46 @@ function Invoke-CleanupRun {
     }
 
     Write-Host ''
+    $summaryColor = Get-ModeColor $SelectedMode
+    $pipelineBar = New-AsciiBar -Value $script:TotalSteps -Total $script:TotalSteps -Width 18
     $sumLines = @(
-        "CLEANUP SUMMARY: $($SelectedMode.ToUpper())",
-        "",
+        "Run summary  : $($SelectedMode.ToUpper())",
+        "Pipeline     : $pipelineBar",
         "Finished     : $($finish.ToString('yyyy-MM-dd HH:mm:ss'))",
         "Duration     : ${dur}s",
         "Before       : $($startSpace.MB) MB ($($startSpace.GB) GB)",
         "After        : $($endSpace.MB) MB ($($endSpace.GB) GB)",
         "Measured     : $(Format-FileSize ([Math]::Max(0, $script:BytesFreed)))",
-        "--------------------------------------------------",
-        "Observed delta: $freedMB MB ($freedGB GB)"
+        "Observed     : $freedMB MB ($freedGB GB)"
     )
-    Write-Panel $sumLines -BorderColor 'Green' -TextColor 'White' -MinWidth 60 -MaxWidth 90
+    Write-Panel $sumLines -BorderColor $summaryColor -TextColor 'White' -MinWidth 58 -MaxWidth 86
     Write-Host ''
 
     # Category breakdown
     if ($script:CategorySizes.Count -gt 0) {
-        Write-Host '  Category Breakdown:' -ForegroundColor Cyan
+        Write-SectionHeader 'Category Breakdown'
         $script:CategorySizes.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object {
-            Write-Host ("    {0,-22} {1,12}" -f $_.Key, (Format-FileSize $_.Value)) -ForegroundColor DarkGray
+            Write-Host ("  {0,-22} {1,12}" -f $_.Key, (Format-FileSize $_.Value)) -ForegroundColor DarkGray
         }
         Write-Host ''
     }
 
-    Write-Host '  Impact Details:' -ForegroundColor Cyan
-    Write-Host "    + System caches:     $s1" -ForegroundColor DarkGray
-    Write-Host "    + Browser profiles:  $s2 Chromium + $s3 Firefox" -ForegroundColor DarkGray
-    Write-Host "    + App caches:        $s4" -ForegroundColor DarkGray
-    Write-Host "    + Dev caches:        $s5" -ForegroundColor DarkGray
-    Write-Host "    + GPU/Shell:         $s6" -ForegroundColor DarkGray
-    Write-Host "    + Log files:         $s8" -ForegroundColor DarkGray
-    Write-Host "    + Empty folders:     $emptyRm" -ForegroundColor DarkGray
-    Write-Host "    + Stale junk:        $staleRm" -ForegroundColor DarkGray
-    Write-Host "    + Orphans detected:  $orphans" -ForegroundColor $(if($orphans -gt 0){'Yellow'}else{'DarkGray'})
+    Write-SectionHeader 'Impact'
+    Write-Host ("  {0,-16} {1}" -f 'System caches', $s1) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Browsers', "$s2 Chromium | $s3 Firefox") -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'App caches', $s4) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Dev caches', $s5) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'GPU/Shell', $s6) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Log files', $s8) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Empty folders', $emptyRm) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Stale junk', $staleRm) -ForegroundColor DarkGray
+    Write-Host ("  {0,-16} {1}" -f 'Orphans', $orphans) -ForegroundColor $(if($orphans -gt 0){'Yellow'}else{'DarkGray'})
 
     if ($script:SkippedItems.Count -gt 0) {
         Write-Host ''
-        Write-Host '  Safety Skips:' -ForegroundColor Cyan
+        Write-SectionHeader 'Safety Skips'
         $script:SkippedItems | Group-Object Reason | Sort-Object Count -Descending | ForEach-Object {
-            Write-Host ("    + {0,2}x {1}" -f $_.Count, $_.Name) -ForegroundColor DarkGray
+            Write-Host ("  {0,2}x {1}" -f $_.Count, $_.Name) -ForegroundColor DarkGray
         }
     }
 
@@ -1341,6 +1725,15 @@ function Invoke-CleanupRun {
 
 $script:SysLoc       = Get-SystemLocations
 $script:ExcludedPaths = Get-ExcludedPaths
+
+if ($LogFile) {
+    $script:LogFilePath = Resolve-FullPath $LogFile
+    if (-not $script:LogFilePath) { $script:LogFilePath = $LogFile }
+    try {
+        $header = "# SystemCleaner log - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Mode: $Mode"
+        Set-Content -LiteralPath $script:LogFilePath -Value $header -Encoding UTF8 -EA SilentlyContinue
+    } catch { $script:LogFilePath = '' }
+}
 
 if ($SkipBootstrap) { return }
 

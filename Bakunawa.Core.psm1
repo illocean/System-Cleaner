@@ -415,16 +415,8 @@ function Get-SystemLocations {
         SoftDistDL   = $(if($wr){Join-Path $wr 'SoftwareDistribution\Download'})
         Prefetch     = $(if($wr){Join-Path $wr 'Prefetch'})
         DeliveryOpt  = $(if($wr){Join-Path $wr 'SoftwareDistribution\DeliveryOptimization'})
+RecycleBin   = $(if($sd){Join-Path $sd '$Recycle.Bin'})
     }
-}
-
-function Show-HealthDetail {
-    $h = Get-HealthScore
-    Clear-Host
-    Write-Host ''
-    Write-Host "Health Score: $($h.Score)/100 $($h.Grade)" -ForegroundColor $h.GradeColor
-    Write-Host "Disk: $($h.DiskScore)/30  Temp: $($h.TempScore)/25  Browser: $($h.BrowserScore)/20  Orphan: $($h.OrphanScore)/25"
-    Write-Host ''
 }
 
 Export-ModuleMember -Function * -Variable *

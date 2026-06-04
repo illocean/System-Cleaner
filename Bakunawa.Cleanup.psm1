@@ -1,5 +1,12 @@
 # Bakunawa.Cleanup.psm1 — Cleanup task execution
 
+function Write-CommandLog {
+    param([string]$Verb,[string]$Target)
+    $ts = Get-Date -Format 'HH:mm:ss'
+    if ([string]::IsNullOrWhiteSpace($Target)) { Write-Host "[$ts] [CMD] $Verb" -ForegroundColor DarkGray; return }
+    Write-Host "[$ts] [CMD] $Verb $Target" -ForegroundColor DarkGray
+}
+
 function Get-CleanupTasks {
     param([ValidateSet('Standard','Aggressive')][string]$Mode = 'Standard')
     $tasks = [System.Collections.Generic.List[System.Object]]::new()
@@ -99,7 +106,7 @@ function Clear-SystemCaches {
             }
         }
         if ($script:SysLoc.SoftDistDL -and (Measure-AndClear $script:SysLoc.SoftDistDL -EnsureDirectory -Category $cat)) { $n++ }
-        if ($script:SysLoc.SoftDistDL -and (Measure-AndClear $script:SysLoc.SoftDistDL -EnsureDirectory -Category $cat)) { $n++ }
+        if ($script:SysLoc.DeliveryOpt -and (Measure-AndClear $script:SysLoc.DeliveryOpt -EnsureDirectory -Category $cat)) { $n++ }
     } finally {
         foreach ($svc in $restart) { Write-CommandLog 'START' $svc; Start-Service $svc -EA SilentlyContinue }
     }
@@ -142,10 +149,7 @@ function Clear-AppCaches {
     
     foreach ($app in $applist) {
         # Skip if any required fields are missing
-        if (-not $app.Name -or -not $app.Category -or -not $app.Path) { continue }
-        
-        # Skip if this app category is excluded
-        if ($script:ExcludedAppCategories -and $script:ExcludedAppCategories.Contains($app.Category)) { continue }
+        if (-not $app.Name) { continue }
         
         # Expand wildcards in path
         try {
@@ -153,7 +157,7 @@ function Clear-AppCaches {
             $expandedPath = $expandedPath -replace '\{appdata\}', $env:APPDATA
             $expandedPath = $expandedPath -replace '\{localappdata\}', $env:LOCALAPPDATA
             $expandedPath = $expandedPath -replace '\{programdata\}', $env:PROGRAMDATA
-            $expandedPath = $env:Path -replace '\{commonprogramfiles\}', $env:COMMONPROGRAMFILES
+            $expandedPath = $expandedPath -replace '\{commonprogramfiles\}', $env:COMMONPROGRAMFILES
             $expandedPath = $expandedPath -replace '\{systemdrive\}', $env:SYSTEMDRIVE
             $expandedPath = $expandedPath -replace '\{windows\}', $env:WINDIR
             
@@ -250,13 +254,13 @@ function Clear-SystemLogFiles {
                     Clear-Content -Path $l -Force -EA SilentlyContinue
                     if ((Get-Item -LiteralPath $l -EA SilentlyContinue).Length -eq 0) {
                         $script:BytesFreed += $size
-                        if(-not $script:CategorySizes.ContainsKey($Category)){$script:CategorySizes[$Category]=[long]0}
-                        $script:CategorySizes[$Category] += $size
+                        if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
+                        $script:CategorySizes[$cat] += $size
                     }
                 } else {
                     $script:BytesFreed += $size
-                    if(-not $script:CategorySizes.ContainsKey($Category)){$script:CategorySizes[$Category]=[long]0}
-                    $script:CategorySizes[$Category] += $size
+                    if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
+                    $script:CategorySizes[$cat] += $size
                 }
                 $n++
             }
@@ -314,7 +318,6 @@ function Remove-StaleJunkFolders {
         '*.old',
         '*.bak',
         '*_backup*',
-        '*.old',
         '*_old*'
     )
     $tempDirs = @(
@@ -650,4 +653,4 @@ function Invoke-CleanupRun {
 }
 
 # Export functions
-Export-ModuleMember -Function *
+Export-ModuleMember -Function Get-CleanupTasks, Measure-AndClear, Remove-FilesByPattern, Clear-SystemCaches, Clear-ChromiumCaches, Clear-FirefoxCaches, Clear-AppCaches, Clear-DevCaches, Clear-GpuAndShellCaches, Clear-RecycleBinSafe, Clear-SystemLogFiles, Remove-EmptyDirectories, Remove-StaleJunkFolders, Find-OrphanFolders, Invoke-ComponentCleanup, Clear-EventLogs, Clear-Prefetch, Clear-FontCache, Invoke-CleanupRun

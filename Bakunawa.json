@@ -1,0 +1,8 @@
+{
+  "mode": "Menu",
+  "extraExcludePaths": [],
+  "orphanThresholdDays": 30,
+  "logRetention": 7,
+  "parallel": true,
+  "uiStyle": "auto"
+}

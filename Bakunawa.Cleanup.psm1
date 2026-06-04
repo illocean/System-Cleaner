@@ -549,7 +549,7 @@ function Clear-FontCache {
 
 function Invoke-CleanupRun {
     param(
-        [ValidateSet('Standard','Aggressive')][string]$Mode = 'Standard',
+        [ValidateSet('Standard','Aggressive','Preview')][string]$Mode = 'Standard',
         [switch]$WhatIf
     )
     
@@ -558,10 +558,11 @@ function Invoke-CleanupRun {
     if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
     if (-not $script:Errors) { $script:Errors = @() }
     if (-not $script:SkippedItems) { $script:SkippedItems = @() }
-    if (-not $script:IsPreview) { $script:IsPreview = $WhatIf.IsPresent }
+    if (-not $script:IsPreview) { $script:IsPreview = ($WhatIf.IsPresent -or ($Mode -eq 'Preview')) }
+    $effectiveMode = if ($Mode -eq 'Preview') { 'Standard' } else { $Mode }
     
     # Get tasks based on mode
-    $tasks = Get-CleanupTasks -Mode $Mode
+    $tasks = Get-CleanupTasks -Mode $effectiveMode
     
     Write-Host "Starting cleanup in $Mode mode..."
     

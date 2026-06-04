@@ -1,12 +1,17 @@
-# System Cleaner
+# Bakunawa
 
-`System Cleaner` is a Windows PowerShell cleanup utility built as a console-style application. It focuses on disposable data such as temp files, browser caches, shader caches, update-download leftovers, and selected app caches, while deliberately avoiding common personal folders such as `Downloads`.
+**Bakunawa** is a Windows PowerShell cleanup utility — a modular evolution of the original `SystemCleaner.ps1`. It focuses on disposable data such as temp files, browser caches, shader caches, update-download leftovers, and selected app caches, while deliberately avoiding common personal folders such as `Downloads`.
 
-The project stays intentionally small:
+The project is organized into four modules:
 
-- One main script: `SystemCleaner.ps1`
-- One operator experience: interactive menu or direct CLI mode
-- One design goal: visible, reviewable cleanup behavior with conservative defaults
+| Module | Role |
+|--------|------|
+| `Bakunawa.Core.psm1` | Core engine, safety, sizing, health |
+| `Bakunawa.Config.psm1` | Configuration and app-definition loading |
+| `Bakunawa.Cleanup.psm1` | Cleanup execution |
+| `Bakunawa.UI.psm1` | Terminal rendering |
+
+The entry point (`Bakunawa.ps1`) auto-loads all modules, handles elevation, and dispatches to the requested mode.
 
 ## What The Tool Does
 
@@ -123,44 +128,44 @@ Within those areas, it removes named cache, temp, update, crash, and shell-cache
 Launch the interactive console:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1
 ```
 
 Run the standard cleanup directly:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Standard
 ```
 
 Run the aggressive cleanup:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Aggressive
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Aggressive
 ```
 
 Preview the cleanup plan without deleting anything:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Preview
 ```
 
 Protect additional paths:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Preview -ExtraExcludePath 'D:\Backups','E:\PortableApps'
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Preview -ExtraExcludePath 'D:\Backups','E:\PortableApps'
 ```
 
 Skip the final pause in non-menu runs:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\SystemCleaner.ps1 -Mode Standard -NoPause
+powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Standard -NoPause
 ```
 
 ## Recommended First Run
 
 For a first-time operator:
 
-1. Review `SystemCleaner.ps1`.
+1. Review `Bakunawa.ps1` and the module files.
 2. Run `Preview` mode first.
 3. Read the live logs and confirm the scope.
 4. Add any additional protected paths with `-ExtraExcludePath`.
@@ -189,9 +194,10 @@ If an application rebuilds data on next launch:
 
 ## Development Notes
 
-- The project is intentionally kept as a single PowerShell script for inspectability.
+- The project is organized into four modules loaded by `Bakunawa.ps1`.
 - The interface is interactive, but every mode can also be run directly from the CLI.
 - Logs are emitted in real time so operators can audit actions during execution.
 - The summary section reports duration, before/after free space, and processed cleanup counts.
+- Tests live in `tests/` and use Pester 5.x.
 
 For security-specific guidance, see [SECURITY.md](SECURITY.md).

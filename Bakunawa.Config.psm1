@@ -29,13 +29,18 @@ function Get-AppDefinitions {
     if (-not (Test-Path -LiteralPath $file)) { return @() }
     try {
         $raw = Get-Content -LiteralPath $file -Raw -Encoding UTF8
-        $defs = [System.Text.Json.JsonSerializer]::Deserialize($raw, [System.Collections.Generic.List[System.Object]])
+        if (-not $raw) { return @() }
+        $defs = $null
+        if ([bool]('System.Text.Json.JsonSerializer' -as [type])) {
+            $defs = [System.Text.Json.JsonSerializer]::Deserialize($raw, [System.Collections.Generic.List[System.Object]])
+        } else {
+            $defs = ConvertFrom-Json $raw -EA Stop
+        }
         if (-not $defs) { return @() }
         return @($defs)
     } catch {
-        try {
-            return @(ConvertFrom-Json $raw -EA Stop)
-        } catch { return @() }
+        Write-Verbose "Get-AppDefinitions($Category): $_"
+        return @()
     }
 }
 
@@ -76,7 +81,7 @@ function Get-BakunawaConfig {
             }
             $script:CachedConfig = $userConfig
             return $userConfig
-        } catch {}
+        } catch { Write-Verbose "Get-BakunawaConfig: $_" }
     }
     $script:CachedConfig = [PSCustomObject]$defaults
     return $script:CachedConfig

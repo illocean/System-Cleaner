@@ -1,4 +1,4 @@
-$modulePath = Join-Path $PSScriptRoot '..\Bakunawa.Config.psm1'
+$modulePath = Join-Path (Join-Path $PSScriptRoot '..') 'Bakunawa.Config.psm1'
 Remove-Module Bakunawa.Config -ErrorAction SilentlyContinue
 Import-Module $modulePath -Force -Scope Global
 

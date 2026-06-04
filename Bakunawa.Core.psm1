@@ -418,4 +418,13 @@ function Get-SystemLocations {
     }
 }
 
+function Show-HealthDetail {
+    $h = Get-HealthScore
+    Clear-Host
+    Write-Host ''
+    Write-Host "Health Score: $($h.Score)/100 $($h.Grade)" -ForegroundColor $h.GradeColor
+    Write-Host "Disk: $($h.DiskScore)/30  Temp: $($h.TempScore)/25  Browser: $($h.BrowserScore)/20  Orphan: $($h.OrphanScore)/25"
+    Write-Host ''
+}
+
 Export-ModuleMember -Function * -Variable *

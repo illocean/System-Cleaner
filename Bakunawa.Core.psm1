@@ -3,19 +3,19 @@
 # ── C# ACCELERATOR ──
 try {
     Add-Type -TypeDefinition @"
-    using System;
-    using System.IO;
-    public static class FastSys {
-        public static long GetDirectorySize(string path) {
-            long size = 0;
-            try {
-                var d = new DirectoryInfo(path);
-                foreach (var f in d.GetFiles()) { size += f.Length; }
-                foreach (var s in d.GetDirectories()) { size += GetDirectorySize(s.FullName); }
-            } catch {}
-            return size;
-        }
+using System;
+using System.IO;
+public static class FastSys {
+    public static long GetDirectorySize(string path) {
+        long size = 0;
+        try {
+            var d = new DirectoryInfo(path);
+            foreach (var f in d.GetFiles()) { size += f.Length; }
+            foreach (var s in d.GetDirectories()) { size += GetDirectorySize(s.FullName); }
+        } catch { Write-Verbose "FastSys.GetDirectorySize: $_"; }
+        return size;
     }
+}
 "@ -ErrorAction SilentlyContinue
 } catch {}
 
@@ -79,7 +79,7 @@ function New-TrackedSet {
 function Resolve-FullPath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
-    try { return [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { return $null }
+    try { return [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { Write-Verbose "Resolve-FullPath: $_"; return $null }
 }
 
 function Get-EnvPath {

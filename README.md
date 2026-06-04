@@ -1,203 +1,226 @@
-# Bakunawa
+# Bakunawa — Devour Your Digital Waste
 
-**Bakunawa** is a Windows PowerShell cleanup utility — a modular evolution of the original `SystemCleaner.ps1`. It focuses on disposable data such as temp files, browser caches, shader caches, update-download leftovers, and selected app caches, while deliberately avoiding common personal folders such as `Downloads`.
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
+[![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)](https://www.microsoft.com/windows)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-The project is organized into four modules:
+A modern, modular Windows system cleanup utility named after the Philippine moon-eating serpent. Safely removes temporary files, browser caches, app caches, developer tool caches, GPU caches, orphan folders, and more.
+
+---
+
+## Features
+
+- **5 cleanup modes:** Menu (interactive), Standard, Aggressive, Preview (dry-run), Orphan Scan
+- **30+ app cache targets** across browsers, messaging apps, dev tools, and system caches
+- **Config-driven app definitions** — add new apps via JSON, no PowerShell changes needed
+- **VT100-rich terminal UI** with graceful ASCII fallback for legacy consoles
+- **Safety-first:** excluded paths (Downloads, Documents, Desktop, etc.), running-process detection, approved-root validation
+- **Health dashboard:** disk pressure, temp accumulation, browser cache age, orphan risk
+- **Orphan detection** with risk scoring (staleness + size + install signal + path trust)
+- **Structured error pipeline** — no global `$ErrorActionPreference = 'SilentlyContinue'`
+- **Parallel execution** for independent cleanup tasks
+- **Optional config file** (`Bakunawa.json`) for persistent exclusions and preferences
+- **Zero external dependencies** — pure PowerShell 5.1+ with C# accelerator for fast directory sizing
+
+---
+
+## Architecture
+
+```
+Bakunawa.ps1              → Entry point (thin dispatcher)
+├── Bakunawa.Core.psm1    → Engine: safety, sizing, health, orphan scoring  (30 functions)
+├── Bakunawa.Config.psm1  → Config I/O: JSON app definitions, user config   (5 functions)
+├── Bakunawa.Cleanup.psm1 → Cleanup: task registry, execution, parallel     (19 functions)
+├── Bakunawa.UI.psm1      → UI: VT100 rendering, menus, progress, fallback  (14 functions)
+├── app-definitions/      → JSON files defining app cache paths
+│   ├── browsers.json
+│   ├── messaging.json
+│   ├── devtools.json
+│   └── system.json
+└── Bakunawa.json          → Optional user configuration
+```
+
+### Module Responsibilities
 
 | Module | Role |
 |--------|------|
-| `Bakunawa.Core.psm1` | Core engine, safety, sizing, health |
-| `Bakunawa.Config.psm1` | Configuration and app-definition loading |
-| `Bakunawa.Cleanup.psm1` | Cleanup execution |
-| `Bakunawa.UI.psm1` | Terminal rendering |
+| `Bakunawa.ps1` | Entry point — auto-loads modules, handles elevation, dispatches to mode |
+| `Bakunawa.Core.psm1` | Protected path resolution, approved-root validation, directory sizing (C#), health analysis, orphan risk scoring |
+| `Bakunawa.Config.psm1` | Loads JSON app definitions, reads/writes user config, validates structure |
+| `Bakunawa.Cleanup.psm1` | Task registry, step execution, parallel runspaces, error collection |
+| `Bakunawa.UI.psm1` | VT100 rendering (with ASCII fallback), interactive menu, progress bars, health dashboard |
 
-The entry point (`Bakunawa.ps1`) auto-loads all modules, handles elevation, and dispatches to the requested mode.
-
-## What The Tool Does
-
-The cleaner targets well-known disposable locations, including:
-
-- User temp folders and `%LOCALAPPDATA%\Temp`
-- Windows temp folders
-- Windows Error Reporting cache and queue folders
-- Windows Update download cache
-- Chromium browser caches for Chrome, Edge, and Brave
-- Firefox cache directories
-- App caches for Discord, VS Code, Spotify, Telegram Desktop, and Stremio
-- GPU shader caches
-- Windows thumbnail and icon caches
-- Recycle Bin contents
-- Empty cache-like directories under safe roots
-- Stale cache, temp, and log folders inside approved roots
-
-`Aggressive` mode adds:
-
-- `Dism.exe /online /Cleanup-Image /StartComponentCleanup`
-- Windows event-log clearing through `wevtutil.exe`
-
-## How The System Works
-
-The script follows a predictable runtime flow:
-
-1. It resolves protected paths and system cleanup roots.
-2. It checks whether the current PowerShell session is elevated.
-3. If elevation is required, it relaunches itself through the normal Windows UAC prompt.
-4. It shows the interactive console menu or runs the selected `-Mode`.
-5. It processes cleanup steps in a fixed order and prints live command-style logs.
-6. It calculates before-and-after disk free space and prints a run summary.
-
-The cleanup pipeline is ordered to keep the operator informed:
-
-1. System temp, crash, and update-related caches
-2. Chromium browser caches
-3. Firefox caches
-4. Selected application caches
-5. GPU, thumbnail, and icon caches
-6. Recycle Bin
-7. Empty and stale cache-like folders
-8. Optional aggressive maintenance tasks
-
-The current console interface is designed to behave like a small terminal application:
-
-- Compact fixed-width ASCII title banner
-- Status panel with mode, free space, protected-path summary, last-run recap, and run meter
-- ASCII step meter plus spinner-style progress updates during cleanup
-- Boxed main menu and post-run actions
-- Persistent logs after execution so the user can inspect exactly what happened
-- ASCII-only UI elements so Windows PowerShell consoles do not render broken glyphs
-
-## Safety Boundaries
-
-This project is designed around scoped cleanup, not broad deletion.
-
-By default, the script does not target:
-
-- `Downloads`
-- Documents, Desktop, Pictures, Music, or Videos
-- Source-code repositories as a general class
-- Installed applications
-- Registry keys
-- Browser profiles as whole directories
-- Credentials, passwords, or accounts as direct cleanup targets
-- Arbitrary folders outside the approved cleanup roots
-
-Safety controls include:
-
-- Automatic exclusion of `Downloads`
-- Additional protected paths through `-ExtraExcludePath`
-- `Preview` mode for dry-run execution
-- Visible step-by-step logs
-- Narrow targeting of known cache and temporary paths
-- Optional aggressive actions instead of default aggressive behavior
-
-Important operational notes:
-
-- Some applications will rebuild caches on next launch.
-- Some applications may lose thumbnails, transient sessions, or offline cache data.
-- `Aggressive` mode is intentionally more disruptive than `Standard`.
-- Administrator rights are required because some system-owned targets cannot be accessed otherwise.
-
-## Modes
-
-- `Menu`: interactive console menu
-- `Standard`: regular cleanup scope
-- `Aggressive`: standard scope plus component-store cleanup and event-log clearing
-- `Preview`: dry run with no file deletion
-
-## Cleanup Scope
-
-The cleaner primarily operates inside these roots:
-
-- `%TEMP%`
-- `%LOCALAPPDATA%`
-- `%APPDATA%`
-- `%ProgramData%`
-- `%SystemRoot%\Temp`
-- `%SystemRoot%\SoftwareDistribution\Download`
-
-Within those areas, it removes named cache, temp, update, crash, and shell-cache data instead of sweeping entire trees blindly.
+---
 
 ## Requirements
 
-- Windows
-- PowerShell 5.1 or newer
-- Permission to approve UAC elevation
+- Windows 10/11 or Windows Server 2016+
+- PowerShell 5.1 or later
+- Administrator rights (auto-elevates if needed)
+
+## Installation
+
+```powershell
+# Clone or download, then run:
+.\Bakunawa.ps1
+```
+
+---
 
 ## Usage
 
-Launch the interactive console:
+### Interactive menu (default)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1
+.\Bakunawa.ps1
 ```
 
-Run the standard cleanup directly:
+### Standard cleanup (non-interactive)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Standard
+.\Bakunawa.ps1 -Mode Standard
 ```
 
-Run the aggressive cleanup:
+### Aggressive cleanup (includes DISM, event logs, prefetch)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Aggressive
+.\Bakunawa.ps1 -Mode Aggressive
 ```
 
-Preview the cleanup plan without deleting anything:
+### Preview mode (dry-run — see what would be deleted)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Preview
+.\Bakunawa.ps1 -Mode Preview
 ```
 
-Protect additional paths:
+### With extra exclusions
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Preview -ExtraExcludePath 'D:\Backups','E:\PortableApps'
+.\Bakunawa.ps1 -Mode Standard -ExtraExcludePath "D:\Projects","E:\Cache"
 ```
 
-Skip the final pause in non-menu runs:
+### Log to file
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Bakunawa.ps1 -Mode Standard -NoPause
+.\Bakunawa.ps1 -Mode Standard -LogFile "C:\Logs\bakunawa.log"
 ```
 
-## Recommended First Run
+### Skip admin elevation (for testing)
 
-For a first-time operator:
+```powershell
+.\Bakunawa.ps1 -Mode Preview -NoPause -SkipBootstrap
+```
 
-1. Review `Bakunawa.ps1` and the module files.
-2. Run `Preview` mode first.
-3. Read the live logs and confirm the scope.
-4. Add any additional protected paths with `-ExtraExcludePath`.
-5. Run `Standard` mode.
-6. Use `Aggressive` mode only when the heavier maintenance tradeoff is acceptable.
+---
 
-## Troubleshooting
+## Menu Options
 
-If the tool reopens with a UAC prompt:
+| Key | Mode | What It Does |
+|-----|------|-------------|
+| `1` | **Standard** | Temp files, browser caches, app caches, orphans |
+| `2` | **Aggressive** | Standard + DISM component cleanup + event logs + prefetch |
+| `3` | **Preview** | Dry run — shows cleanup plan without deleting |
+| `4` | **Orphans** | Interactive orphan folder review with risk scoring |
+| `5` | **Health** | Detailed system health report (disk, temps, caches, orphans) |
+| `Q` | Quit | Exit |
 
-- That is expected for system-level cleanup targets.
+---
 
-If some cache folders cannot be removed:
+## Configuration (`Bakunawa.json`)
 
-- The owning application may still be running.
-- Close the application and rerun the cleaner.
+Create `Bakunawa.json` alongside the script for persistent settings:
 
-If reported free space changes only slightly:
+```json
+{
+  "mode": "Menu",
+  "extraExcludePaths": ["D:\\Backups"],
+  "orphanThresholdDays": 30,
+  "logRetention": 7,
+  "parallel": true,
+  "uiStyle": "auto"
+}
+```
 
-- The targeted caches may already be small or empty.
-- Use `Preview` mode to confirm what the script plans to touch.
+| Option | Description |
+|--------|-------------|
+| `mode` | Default mode: `Menu`, `Standard`, `Aggressive`, `Preview` |
+| `extraExcludePaths` | Array of additional paths to never clean |
+| `orphanThresholdDays` | Days of inactivity before a folder is considered orphaned |
+| `logRetention` | Number of log files to keep |
+| `parallel` | Enable parallel cleanup execution |
+| `uiStyle` | `"auto"`, `"vt100"`, or `"ascii"` |
 
-If an application rebuilds data on next launch:
+---
 
-- That is normal behavior for cache cleanup.
+## Adding New Apps
 
-## Development Notes
+Create or edit a JSON file in `app-definitions/`:
 
-- The project is organized into four modules loaded by `Bakunawa.ps1`.
-- The interface is interactive, but every mode can also be run directly from the CLI.
-- Logs are emitted in real time so operators can audit actions during execution.
-- The summary section reports duration, before/after free space, and processed cleanup counts.
-- Tests live in `tests/` and use Pester 5.x.
+```json
+{
+  "name": "MyApp",
+  "process": "myapp",
+  "locations": [
+    { "env": "LOCALAPPDATA", "path": "MyApp/Cache" },
+    { "env": "APPDATA", "path": "MyApp/logs" }
+  ]
+}
+```
 
-For security-specific guidance, see [SECURITY.md](SECURITY.md).
+- `name` — Display name
+- `process` — Process name (semicolon-separated for multiple). If the process is running, the app's cache is skipped.
+- `locations` — Array of `{ "env": "ENVVAR", "path": "relative/path" }` pairs
+
+---
+
+## Safety Features
+
+- **Protected paths:** Downloads, Documents, Desktop, Pictures, Videos, Music, OneDrive, Windows packages
+- **Running process detection:** Skips browser/app cache cleanup if the app is running
+- **Approved-root validation:** Only cleans within known safe directories
+- **Preview mode:** See exactly what would be deleted before committing
+- **Structured error handling:** Per-operation try/catch, errors collected for review
+- **Extra exclusion support:** Add custom paths via `-ExtraExcludePath` or config file
+
+### What is NOT targeted
+
+- `Downloads`, Documents, Desktop, Pictures, Music, Videos
+- Source-code repositories
+- Installed applications
+- Registry keys
+- Browser profiles as whole directories
+- Credentials, passwords, or accounts
+- Arbitrary folders outside approved cleanup roots
+
+---
+
+## Development
+
+```powershell
+# Run all tests
+Invoke-Pester -Path 'tests/'
+
+# Run specific test file
+Invoke-Pester -Path 'tests/Bakunawa.Core.Tests.ps1'
+```
+
+### Project Structure
+
+- `Bakunawa.ps1` — Entry point
+- `Bakunawa.Core.psm1` — Core engine (30 functions)
+- `Bakunawa.Config.psm1` — Config I/O (5 functions)
+- `Bakunawa.Cleanup.psm1` — Cleanup execution (19 functions)
+- `Bakunawa.UI.psm1` — Terminal rendering (14 functions)
+- `app-definitions/` — 4 JSON files
+- `tests/` — 59 Pester tests
+
+---
+
+## License
+
+MIT
+
+## Acknowledgments
+
+- Inspired by the original SystemCleaner concept
+- Named after **Bakunawa**, the Philippine moon-eating serpent — devour your digital waste

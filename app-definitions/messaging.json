@@ -1,0 +1,61 @@
+[
+  {
+    "name": "Discord",
+    "process": "discord",
+    "locations": [
+      { "env": "APPDATA", "path": "discord/Cache" },
+      { "env": "APPDATA", "path": "discord/Code Cache" },
+      { "env": "APPDATA", "path": "discord/GPUCache" },
+      { "env": "APPDATA", "path": "discord/blob_storage" }
+    ]
+  },
+  {
+    "name": "Slack",
+    "process": "slack",
+    "locations": [
+      { "env": "APPDATA", "path": "Slack/Cache" },
+      { "env": "APPDATA", "path": "Slack/Service Worker/CacheStorage" },
+      { "env": "APPDATA", "path": "Slack/Code Cache" },
+      { "env": "APPDATA", "path": "Slack/GPUCache" },
+      { "env": "LOCALAPPDATA", "path": "Slack/logs" }
+    ]
+  },
+  {
+    "name": "Teams",
+    "process": "teams",
+    "locations": [
+      { "env": "APPDATA", "path": "Microsoft/Teams/Cache" },
+      { "env": "APPDATA", "path": "Microsoft/Teams/Code Cache" },
+      { "env": "APPDATA", "path": "Microsoft/Teams/GPUCache" },
+      { "env": "APPDATA", "path": "Microsoft/Teams/logs" },
+      { "env": "APPDATA", "path": "Microsoft/Teams/blob_storage" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Teams/old_weblogs" }
+    ]
+  },
+  {
+    "name": "WhatsApp",
+    "process": "whatsapp",
+    "locations": [
+      { "env": "APPDATA", "path": "WhatsApp/Cache" },
+      { "env": "APPDATA", "path": "WhatsApp/Code Cache" },
+      { "env": "APPDATA", "path": "WhatsApp/GPUCache" },
+      { "env": "APPDATA", "path": "WhatsApp/Service Worker/CacheStorage" }
+    ]
+  },
+  {
+    "name": "Telegram",
+    "process": "telegram",
+    "locations": [
+      { "env": "APPDATA", "path": "Telegram Desktop/tdata/{sub:cache}" }
+    ]
+  },
+  {
+    "name": "Viber",
+    "process": "viber",
+    "locations": [
+      { "env": "APPDATA", "path": "ViberPC/cache" },
+      { "env": "LOCALAPPDATA", "path": "Viber/cache" },
+      { "env": "LOCALAPPDATA", "path": "Viber Media S.a r.l/cache" }
+    ]
+  }
+]

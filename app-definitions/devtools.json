@@ -1,0 +1,151 @@
+[
+  {
+    "name": "VS Code",
+    "process": "Code",
+    "locations": [
+      { "env": "APPDATA", "path": "Code/Cache" },
+      { "env": "APPDATA", "path": "Code/CachedData" },
+      { "env": "APPDATA", "path": "Code/CachedExtensions" },
+      { "env": "APPDATA", "path": "Code/CachedExtensionVSIXs" },
+      { "env": "APPDATA", "path": "Code/Code Cache" },
+      { "env": "APPDATA", "path": "Code/GPUCache" },
+      { "env": "APPDATA", "path": "Code/Service Worker/CacheStorage" },
+      { "env": "APPDATA", "path": "Code/logs" }
+    ]
+  },
+  {
+    "name": "VS Code Insiders",
+    "process": "Code - Insiders",
+    "locations": [
+      { "env": "APPDATA", "path": "Code - Insiders/Cache" },
+      { "env": "APPDATA", "path": "Code - Insiders/CachedData" },
+      { "env": "APPDATA", "path": "Code - Insiders/CachedExtensions" },
+      { "env": "APPDATA", "path": "Code - Insiders/CachedExtensionVSIXs" },
+      { "env": "APPDATA", "path": "Code - Insiders/Code Cache" },
+      { "env": "APPDATA", "path": "Code - Insiders/GPUCache" },
+      { "env": "APPDATA", "path": "Code - Insiders/logs" }
+    ]
+  },
+  {
+    "name": "npm-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "npm-cache" }
+    ]
+  },
+  {
+    "name": "pnpm-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "pnpm-cache" },
+      { "env": "LOCALAPPDATA", "path": "pnpm-state" }
+    ]
+  },
+  {
+    "name": "pip-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "pip/cache" }
+    ]
+  },
+  {
+    "name": "uv-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "uv/cache" }
+    ]
+  },
+  {
+    "name": "NuGet-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "NuGet/v3-cache" },
+      { "env": "LOCALAPPDATA", "path": "NuGet/plugins-cache" },
+      { "env": "LOCALAPPDATA", "path": "NuGet/http-cache" }
+    ]
+  },
+  {
+    "name": "Composer-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Composer/cache" }
+    ]
+  },
+  {
+    "name": "Yarn-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Yarn/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Yarn/Berry/cache" }
+    ]
+  },
+  {
+    "name": "Go-mod-cache",
+    "process": null,
+    "locations": []
+  },
+  {
+    "name": "Cargo-cache",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".cargo/registry/cache" },
+      { "env": "USERPROFILE", "path": ".cargo/git/db" }
+    ]
+  },
+  {
+    "name": "Bun-cache",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".bun/install/cache" }
+    ]
+  },
+  {
+    "name": "Dart-pub-cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Pub/Cache" }
+    ]
+  },
+  {
+    "name": "Docker-tmp",
+    "process": null,
+    "locations": [
+      { "env": "APPDATA", "path": "Docker/tmp" }
+    ]
+  },
+  {
+    "name": "Prisma-engines",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "prisma-nodejs" }
+    ]
+  },
+  {
+    "name": "checkpoint-nodejs",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "checkpoint-nodejs" }
+    ]
+  },
+  {
+    "name": "firebase-heartbeat",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "firebase-heartbeat" }
+    ]
+  },
+  {
+    "name": "dotnet-telemetry",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".dotnet/TelemetryFallbackDir" }
+    ]
+  },
+  {
+    "name": "JetBrains",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/{product}" }
+    ]
+  }
+]

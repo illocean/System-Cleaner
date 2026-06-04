@@ -1,0 +1,112 @@
+[
+  {
+    "name": "Windows Temp",
+    "process": null,
+    "locations": [
+      { "env": "TEMP", "path": "" },
+      { "env": "LOCALAPPDATA", "path": "Temp" },
+      { "env": "SystemRoot", "path": "Temp" }
+    ]
+  },
+  {
+    "name": "Crash Dumps",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "CrashDumps" }
+    ]
+  },
+  {
+    "name": "WER Archive",
+    "process": null,
+    "locations": [
+      { "env": "ProgramData", "path": "Microsoft/Windows/WER/ReportArchive" }
+    ]
+  },
+  {
+    "name": "WER Queue",
+    "process": null,
+    "locations": [
+      { "env": "ProgramData", "path": "Microsoft/Windows/WER/ReportQueue" }
+    ]
+  },
+  {
+    "name": "Network Downloader",
+    "process": null,
+    "locations": [
+      { "env": "ProgramData", "path": "Microsoft/Network/Downloader" }
+    ]
+  },
+  {
+    "name": "SoftwareDistribution",
+    "process": null,
+    "serviceAction": "stop:wuauserv,bits,dosvc",
+    "locations": [
+      { "env": "SystemRoot", "path": "SoftwareDistribution/Download" },
+      { "env": "SystemRoot", "path": "SoftwareDistribution/DeliveryOptimization" }
+    ]
+  },
+  {
+    "name": "GPU D3D Cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "D3DSCache" }
+    ]
+  },
+  {
+    "name": "GPU NVIDIA DXCache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "NVIDIA/DXCache" },
+      { "env": "LOCALAPPDATA", "path": "NVIDIA/GLCache" }
+    ]
+  },
+  {
+    "name": "GPU AMD Cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "AMD/DxCache" }
+    ]
+  },
+  {
+    "name": "GPU Intel Cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Intel/ShaderCache" }
+    ]
+  },
+  {
+    "name": "CEF Cache",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "CEF/Cache" }
+    ]
+  },
+  {
+    "name": "Thumbnail Cache",
+    "process": null,
+    "explorerAction": "restart",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Windows/Explorer" }
+    ]
+  },
+  {
+    "name": "Recycle Bin",
+    "process": null,
+    "recycleBin": true
+  },
+  {
+    "name": "Prefetch",
+    "process": null,
+    "locations": [
+      { "env": "SystemRoot", "path": "Prefetch" }
+    ]
+  },
+  {
+    "name": "Font Cache",
+    "process": null,
+    "serviceAction": "stop:FontCache",
+    "locations": [
+      { "env": "SystemRoot", "path": "ServiceProfiles/LocalService/AppData/Local/FontCache" }
+    ]
+  }
+]

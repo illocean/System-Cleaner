@@ -1,0 +1,81 @@
+[
+  {
+    "name": "Chrome",
+    "process": "chrome",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Code Cache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/GPUCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Media Cache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/DawnCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/ShaderCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/GrShaderCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/GraphiteDawnCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/DawnWebGPUCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Local Storage" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Service Worker/CacheStorage" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Service Worker/ScriptCache" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Crashpad" },
+      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/blob_storage" }
+    ]
+  },
+  {
+    "name": "Edge",
+    "process": "msedge",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Code Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/GPUCache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Media Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/DawnCache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/ShaderCache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/GrShaderCache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Local Storage" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Service Worker/CacheStorage" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/blob_storage" }
+    ]
+  },
+  {
+    "name": "Brave",
+    "process": "brave",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Cache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Code Cache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/GPUCache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Media Cache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/DawnCache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/ShaderCache" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Local Storage" },
+      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/blob_storage" }
+    ]
+  },
+  {
+    "name": "Firefox",
+    "process": "firefox",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/cache2" },
+      { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/startupCache" },
+      { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/thumbnails" },
+      { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/shader-cache" },
+      { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/OfflineCache" }
+    ]
+  },
+  {
+    "name": "Opera",
+    "process": "opera",
+    "locations": [
+      { "env": "APPDATA", "path": "Opera Software/Opera Stable/{profile}/Cache" },
+      { "env": "APPDATA", "path": "Opera Software/Opera Stable/{profile}/Code Cache" },
+      { "env": "APPDATA", "path": "Opera Software/Opera Stable/{profile}/GPUCache" }
+    ]
+  },
+  {
+    "name": "Vivaldi",
+    "process": "vivaldi",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Vivaldi/User Data/{profile}/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Vivaldi/User Data/{profile}/Code Cache" },
+      { "env": "LOCALAPPDATA", "path": "Vivaldi/User Data/{profile}/GPUCache" }
+    ]
+  }
+]

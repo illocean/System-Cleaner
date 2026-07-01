@@ -1,0 +1,59 @@
+[
+  {
+    "name": "Terraform",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "terraform.d/plugin-cache" }
+    ]
+  },
+  {
+    "name": "Gradle",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".gradle/caches" }
+    ]
+  },
+  {
+    "name": "Maven",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".m2/repository" }
+    ]
+  },
+  {
+    "name": "GitHub CLI",
+    "process": "gh",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "github-cli" }
+    ]
+  },
+  {
+    "name": "AWS CLI",
+    "process": null,
+    "locations": [
+      { "env": "USERPROFILE", "path": ".aws/cli/cache" }
+    ]
+  },
+  {
+    "name": "gcloud SDK",
+    "process": null,
+    "locations": [
+      { "env": "APPDATA", "path": "gcloud/logs" },
+      { "env": "APPDATA", "path": "gcloud/cache" }
+    ]
+  },
+  {
+    "name": "Vagrant",
+    "process": "Vagrant",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".vagrant.d/logs" }
+    ]
+  },
+  {
+    "name": "Packer",
+    "process": "packer",
+    "locations": [
+      { "env": "APPDATA", "path": "packer" }
+    ]
+  }
+]

@@ -22,6 +22,8 @@ function Get-AppDefinitions {
     $dir = $script:AppDefinitionsDir
     if (-not $dir) {
         $scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+        # Modules live in src/ — app-definitions is at the project root
+        if ((Split-Path -Leaf $scriptPath) -eq 'src') { $scriptPath = Split-Path $scriptPath -Parent }
         $dir = Join-Path $scriptPath 'app-definitions'
         $script:AppDefinitionsDir = $dir
     }
@@ -46,7 +48,7 @@ function Get-AppDefinitions {
 
 function Get-AllAppDefinitions {
     $all = [System.Collections.Generic.List[System.Object]]::new()
-    foreach ($cat in @('browsers', 'messaging', 'devtools', 'system')) {
+    foreach ($cat in @('browsers', 'messaging', 'devtools', 'system', 'apps', 'games', 'cloud', 'creative', 'productivity', 'devops')) {
         $defs = Get-AppDefinitions -Category $cat
         foreach ($d in $defs) { $all.Add($d) }
     }
@@ -58,6 +60,7 @@ function Get-BakunawaConfig {
     $cfgPath = $script:ConfigFilePath
     if (-not $cfgPath) {
         $scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+        if ((Split-Path -Leaf $scriptPath) -eq 'src') { $scriptPath = Split-Path $scriptPath -Parent }
         $cfgPath = Join-Path $scriptPath 'Bakunawa.json'
         $script:ConfigFilePath = $cfgPath
     }

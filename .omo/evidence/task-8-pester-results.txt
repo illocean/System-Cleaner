@@ -1,0 +1,87 @@
+=== BAKUNAWA PESTER TEST RESULTS ===
+Date: 2026-07-01 15:22
+Pester Version: 5.8.0
+
+=== SUMMARY ===
+Total: 61
+Passed: 61
+Failed: 0
+Skipped: 0
+Duration: 11.6s
+
+=== RESULTS BY FILE ===
+
+Bakunawa.Cleanup.Tests.ps1 (4 tests — 4 passed, 0 failed)
+  [+] Bakunawa.Cleanup task registry / returns different task counts per mode
+  [+] Bakunawa.Cleanup task registry / includes orphan detection as a task
+  [+] Bakunawa.Cleanup task registry / includes new categories in standard mode
+  [+] Bakunawa.Cleanup task registry / marks cache tasks as parallel
+
+Bakunawa.Config.Tests.ps1 (8 tests — 8 passed, 0 failed)
+  [+] Bakunawa.Config / resolves environment path templates correctly
+  [+] Bakunawa.Config / returns null for missing environment variable
+  [+] Bakunawa.Config / loads app definitions from a category file
+  [+] Bakunawa.Config / loads all app definition categories
+  [+] Bakunawa.Config / loads new categories (games, cloud, creative, productivity, devops)
+  [+] Bakunawa.Config / loads default config when no config file exists
+  [+] Bakunawa.Config / merges CLI extra exclusions with config file exclusions
+  [+] Bakunawa.Config / processes null process name safely
+
+Bakunawa.Core.Tests.ps1 (13 tests — 13 passed, 0 failed)
+  [+] Bakunawa.Core formatting / formats bytes correctly
+  [+] Bakunawa.Core formatting / returns zero for non-existent directory size
+  [+] Bakunawa.Core formatting / creates a case-insensitive tracked set
+  [+] Bakunawa.Core formatting / resolves full paths correctly
+  [+] Bakunawa.Core formatting / detects non-administrator in normal session
+  [+] Bakunawa.Core orphan risk / scores old + large folder as HIGH
+  [+] Bakunawa.Core orphan risk / scores recent + small folder as LOW
+  [+] Bakunawa.Core orphan risk / reduces score when install matches exact name
+  [+] Bakunawa.Core orphan risk / never returns negative score
+  [+] Bakunawa.Core health score / returns a valid result object
+  [+] Bakunawa.Core safety / compacts protected paths into short labels
+  [+] Bakunawa.Core safety / returns "none" for empty compact list
+  [+] Bakunawa.Core safety / Test-IsExcludedPath excludes Downloads
+  [+] Bakunawa.Core safety / Test-SafeCleanupTarget rejects excluded paths
+
+Bakunawa.Formatting.Tests.ps1 (28 tests — 28 passed, 0 failed)
+  [+] Bakunawa formatting helpers / builds an ASCII-only progress bar
+  [+] Bakunawa formatting helpers / handles zero-total progress bar gracefully
+  [+] Bakunawa formatting helpers / clamps progress bar value to total
+  [+] Bakunawa formatting helpers / compacts protected paths into short labels
+  [+] Bakunawa formatting helpers / returns "none" for empty compact list
+  [+] Bakunawa formatting helpers / returns a compact block-font logo
+  [+] Bakunawa utility functions / formats bytes correctly
+  [+] Bakunawa utility functions / returns zero for non-existent directory size
+  [+] Bakunawa utility functions / creates a case-insensitive tracked set
+  [+] Bakunawa utility functions / resolves full paths correctly
+  [+] Bakunawa utility functions / returns console width within bounds
+  [+] Bakunawa utility functions / truncates display text properly
+  [+] Bakunawa utility functions / detects non-administrator in normal session
+  [+] Bakunawa mode colors / returns expected color for each mode
+  [+] Bakunawa tracking and safety / New-TrackedSet is case-insensitive
+  [+] Bakunawa tracking and safety / Get-PathLabel extracts leaf name
+  [+] Bakunawa tracking and safety / Get-PathLabel returns null for empty
+  [+] Get-OrphanRiskScore / scores old + large folder as HIGH
+  [+] Get-OrphanRiskScore / scores recent + small folder as LOW
+  [+] Get-OrphanRiskScore / reduces score when install matches exact name
+  [+] Get-OrphanRiskScore / reduces score on partial name match
+  [+] Get-OrphanRiskScore / scores path Local higher than Roaming
+  [+] Get-OrphanRiskScore / scores ProgramData highest path trust
+  [+] Get-OrphanRiskScore / never returns negative score
+  [+] Get-HealthScore / returns a valid result object
+  [+] Get-HealthScore / caches and returns same score within 30s
+
+Bakunawa.UI.Tests.ps1 (8 tests — 8 passed, 0 failed)
+  [+] Bakunawa.UI mode colors / returns expected color for Standard mode
+  [+] Bakunawa.UI mode colors / returns expected color for Aggressive mode
+  [+] Bakunawa.UI mode colors / returns expected color for Preview mode
+  [+] Bakunawa.UI mode colors / returns default color for Menu mode
+  [+] Bakunawa.UI mode colors / returns default color for unknown mode
+  [+] Bakunawa.UI VT100 detection / detects VT100 support without crashing
+  [+] Bakunawa.UI logging / writes INFO log entries without crashing
+  [+] Bakunawa.UI logging / writes OK log entries without crashing
+  [+] Bakunawa.UI logging / writes WARN log entries without crashing
+
+=== NOTES ===
+- First run with Pester 3.4.0 failed all 61 tests (incompatible Should operators)
+- Re-ran with Pester 5.8.0: all 61 passed

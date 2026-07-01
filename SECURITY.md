@@ -2,7 +2,7 @@
 
 ## Summary
 
-`System Cleaner` is a local Windows cleanup script that runs with administrator approval and deletes a scoped set of cache and temporary data. It is designed to be readable, auditable, conservative by default, and safer to inspect in `Preview` mode before any deletion takes place.
+`Bakunawa` is a local Windows cleanup script that runs with administrator approval and deletes a scoped set of cache and temporary data. It is designed to be readable, auditable, conservative by default, and safer to inspect in `Preview` mode before any deletion takes place.
 
 ## Security Model
 
@@ -81,7 +81,7 @@ These are operational risks, not hidden behavior. They are the reason `Preview` 
 
 ## Recommended Safe Usage
 
-1. Review `SystemCleaner.ps1`.
+1. Review `Bakunawa.ps1`.
 2. Run `Preview` mode first.
 3. Check the printed actions against your environment.
 4. Add extra protected paths with `-ExtraExcludePath` where needed.

@@ -27,11 +27,12 @@ A modern, modular Windows system cleanup utility named after the Philippine moon
 ## Architecture
 
 ```
-Bakunawa.ps1              → Entry point (thin dispatcher)
-├── Bakunawa.Core.psm1    → Engine: safety, sizing, health, orphan scoring  (30 functions)
-├── Bakunawa.Config.psm1  → Config I/O: JSON app definitions, user config   (5 functions)
-├── Bakunawa.Cleanup.psm1 → Cleanup: task registry, execution, parallel     (19 functions)
-├── Bakunawa.UI.psm1      → UI: VT100 rendering, menus, progress, fallback  (14 functions)
+Bakunawa.ps1              → Entry point (thin dispatcher / Controller)
+├── src/                   → Module source files (MVC separation)
+│   ├── Bakunawa.Core.psm1    → Model: engine, safety, sizing, health, orphan scoring  (30 functions)
+│   ├── Bakunawa.Config.psm1  → Model: config I/O, JSON app definitions, user config   (5 functions)
+│   ├── Bakunawa.Cleanup.psm1 → Controller: task registry, execution, parallel          (19 functions)
+│   └── Bakunawa.UI.psm1      → View: VT100 rendering, menus, progress, fallback        (14 functions)
 ├── app-definitions/      → JSON files defining app cache paths
 │   ├── browsers.json
 │   ├── messaging.json
@@ -42,13 +43,13 @@ Bakunawa.ps1              → Entry point (thin dispatcher)
 
 ### Module Responsibilities
 
-| Module | Role |
-|--------|------|
-| `Bakunawa.ps1` | Entry point — auto-loads modules, handles elevation, dispatches to mode |
-| `Bakunawa.Core.psm1` | Protected path resolution, approved-root validation, directory sizing (C#), health analysis, orphan risk scoring |
-| `Bakunawa.Config.psm1` | Loads JSON app definitions, reads/writes user config, validates structure |
-| `Bakunawa.Cleanup.psm1` | Task registry, step execution, parallel runspaces, error collection |
-| `Bakunawa.UI.psm1` | VT100 rendering (with ASCII fallback), interactive menu, progress bars, health dashboard |
+| Module | MVC Role | Responsibility |
+|--------|----------|---------------|
+| `Bakunawa.ps1` | **Controller** | Entry point — auto-loads modules, handles elevation, dispatches to mode |
+| `src/Bakunawa.Core.psm1` | **Model** | Protected path resolution, approved-root validation, directory sizing (C#), health analysis, orphan risk scoring |
+| `src/Bakunawa.Config.psm1` | **Model** | Loads JSON app definitions, reads/writes user config, validates structure |
+| `src/Bakunawa.Cleanup.psm1` | **Controller** | Task registry, step execution, parallel runspaces, error collection |
+| `src/Bakunawa.UI.psm1` | **View** | VT100 rendering (with ASCII fallback), interactive menu, progress bars, health dashboard |
 
 ---
 
@@ -206,11 +207,11 @@ Invoke-Pester -Path 'tests/Bakunawa.Core.Tests.ps1'
 
 ### Project Structure
 
-- `Bakunawa.ps1` — Entry point
-- `Bakunawa.Core.psm1` — Core engine (30 functions)
-- `Bakunawa.Config.psm1` — Config I/O (5 functions)
-- `Bakunawa.Cleanup.psm1` — Cleanup execution (19 functions)
-- `Bakunawa.UI.psm1` — Terminal rendering (14 functions)
+- `Bakunawa.ps1` — Entry point (Controller)
+- `src/Bakunawa.Core.psm1` — Model: core engine (30 functions)
+- `src/Bakunawa.Config.psm1` — Model: config I/O (5 functions)
+- `src/Bakunawa.Cleanup.psm1` — Controller: cleanup execution (19 functions)
+- `src/Bakunawa.UI.psm1` — View: terminal rendering (14 functions)
 - `app-definitions/` — 4 JSON files
 - `tests/` — 59 Pester tests
 

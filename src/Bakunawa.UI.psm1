@@ -1,4 +1,4 @@
-﻿# Bakunawa.UI.psm1 -- Terminal rendering engine
+﻿# Bakunawa.UI.psm1 — Terminal rendering engine
 
 if (-not $script:SpinnerFrames) { $script:SpinnerFrames = @('|','/','-','\') }
 if (-not $script:SpinnerIndex) { $script:SpinnerIndex = 0 }
@@ -24,7 +24,7 @@ function Write-Log {
         'OK'   { ' [+] ', 'Green' }
         'WARN' { ' [!] ', 'Yellow' }
         'ERR'  { ' [X] ', 'Red' }
-        'CMD'  { ' > ', 'DarkGray' }
+        'CMD'  { '  >  ', 'DarkGray' }
         'STEP' { ' >> ', 'Cyan' }
         'SIZE' { ' vv ', 'Magenta' }
         default{ ' [i] ', 'Gray' }
@@ -34,12 +34,6 @@ function Write-Log {
         $line = "[$ts][$Level] $Message"
         try { Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8 -EA SilentlyContinue } catch {}
     }
-}
-
-function Write-CommandLog {
-    param([string]$Verb,[string]$Target)
-    if ([string]::IsNullOrWhiteSpace($Target)) { Write-Log $Verb 'CMD'; return }
-    Write-Log "$Verb $Target" 'CMD'
 }
 
 function Write-CenteredLine {
@@ -53,16 +47,9 @@ function Write-CenteredLine {
 function Write-SectionHeader {
     param([string]$Title,[string]$ForegroundColor='Cyan')
     $cw = Get-ConsoleWidth
-    $useVT = Test-VT100Supported
-    if ($useVT) {
-        $boxH = [char]0x2500
-        $line = $boxH.ToString() * [Math]::Max(0, $cw - 4)
-        Write-Host (([char]0x250C).ToString()+"- $Title $line") -ForegroundColor $ForegroundColor
-    } else {
-        $prefix = "-- $Title "
-        $line = $prefix + ('-' * [Math]::Max(0, $cw - $prefix.Length))
-        Write-Host (Get-DisplayText $line $cw) -ForegroundColor $ForegroundColor
-    }
+    $prefix = "-- $Title "
+    $line = $prefix + ('-' * [Math]::Max(0, $cw - $prefix.Length))
+    Write-Host (Get-DisplayText $line $cw) -ForegroundColor $ForegroundColor
 }
 
 function Write-Panel {
@@ -72,40 +59,23 @@ function Write-Panel {
     $pw = [Math]::Min($aw,[Math]::Max($MinWidth,$mxl+4))
     $pw = [Math]::Min($pw,$MaxWidth); $pw = [Math]::Min($pw,$cw)
     $iw = [Math]::Max(1,$pw-4); $pad = [Math]::Max(0,[int](($cw-$pw)/2))
-    $lp = ' '*$pad
-    $useVT = Test-VT100Supported
-    if ($useVT) {
-        $boxH = [char]0x2550; $boxV = [char]0x2551
-        $boxTL = [char]0x2554; $boxTR = [char]0x2557
-        $boxBL = [char]0x255A; $boxBR = [char]0x255D
-        Write-Host ($lp+$boxTL+($boxH.ToString()*($pw-2))+$boxTR) -ForegroundColor $BorderColor
-        foreach($l in $Lines){
-            $rl = (Get-DisplayText $l $iw).PadRight($iw)
-            Write-Host ($lp+$boxV+' '+$rl+' '+$boxV) -ForegroundColor $TextColor
-        }
-        Write-Host ($lp+$boxBL+($boxH.ToString()*($pw-2))+$boxBR) -ForegroundColor $BorderColor
-    } else {
-        Write-Host ($lp+'+'+('-'*($pw-2))+'+') -ForegroundColor $BorderColor
-        foreach($l in $Lines){
-            $rl = (Get-DisplayText $l $iw).PadRight($iw)
-            Write-Host ($lp+'| '+$rl+' |') -ForegroundColor $TextColor
-        }
-        Write-Host ($lp+'+'+('-'*($pw-2))+'+') -ForegroundColor $BorderColor
+    $lp = ' '*$pad; $bdr = '+'+('-'*($pw-2))+'+'
+    Write-Host ($lp+$bdr) -ForegroundColor $BorderColor
+    foreach($l in $Lines){
+        $rl = (Get-DisplayText $l $iw).PadRight($iw)
+        Write-Host ($lp+'| '+$rl+' |') -ForegroundColor $TextColor
     }
+    Write-Host ($lp+$bdr) -ForegroundColor $BorderColor
 }
 
 function Show-AppLogo {
     $logo = @(
-        ' .------------------------------------------------------------. '
-        ' |   ____        _           _                                | '
-        ' |  | _ \      | |         | |                               | '
-        ' |  | |_) | __ _| | ____ _  | |__   __ _ _ __  _   _ ___      | '
-        ' |  |  _ < / _` | |/ / _` | | `_ \ / _` | `_ \| | | / __|     | '
-        ' |  | |_) | (_| |   < (_| | | |_) | (_| | |_) | |_| \__ \     | '
-        ' |  |____/ \__,_|_|\_\__,_| |_.__/ \__,_| .__/ \__,_|___/     | '
-        ' |                                       | |                  | '
-        ' |    B A K U N A W A   v3              |_|   Devour Waste    | '
-        ' `------------------------------------------------------------` '
+        '██████╗  █████╗ ██╗  ██╗██╗   ██╗███╗   ██╗ █████╗ ██╗    ██╗ █████╗ '
+        '██╔══██╗██╔══██╗██║ ██╔╝██║   ██║████╗  ██║██╔══██╗██║    ██║██╔══██╗'
+        '██████╔╝███████║█████╔╝ ██║   ██║██╔██╗ ██║███████║██║ █╗ ██║███████║'
+        '██╔══██╗██╔══██║██╔═██╗ ██║   ██║██║╚██╗██║██╔══██║██║███╗██║██╔══██║'
+        '██████╔╝██║  ██║██║  ██╗╚██████╔╝██║ ╚████║██║  ██║╚███╔███╔╝██║  ██║'
+        '╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝'
     )
     $colors = @('DarkCyan','Cyan','Cyan','White','Cyan','DarkCyan')
     for ($index = 0; $index -lt $logo.Count; $index++) {
@@ -125,6 +95,7 @@ function Start-Step {
     if ($script:TotalSteps -gt 0) {
         $pct = [Math]::Max(1,[int](($script:StepIndex / $script:TotalSteps) * 100))
         $script:ActiveStepName = $Name; $script:ActiveStepPct = $pct
+        $script:LastUiMs = -999999
         Update-UiTicker
     }
 }
@@ -142,6 +113,9 @@ function Finish-Step {
 function Update-UiTicker {
     param([string]$CurrentOperation)
     if (-not $script:ActiveStepName -or $script:TotalSteps -le 0) { return }
+    $nowMs = [long]([System.Diagnostics.Stopwatch]::GetTimestamp() / 10000)
+    if (($nowMs - $script:LastUiMs) -lt $script:UiTickMs) { return }
+    $script:LastUiMs = $nowMs
     $frame = $script:SpinnerFrames[$script:SpinnerIndex % $script:SpinnerFrames.Count]
     $script:SpinnerIndex++
     $op = if ([string]::IsNullOrWhiteSpace($CurrentOperation)) { $script:ActiveStepName } else { $CurrentOperation }
@@ -162,10 +136,9 @@ function Show-Header {
     $healthLine = 'Health     : not available'
     try {
         $h = Get-HealthScore
-        $barChar = if (Test-VT100Supported) { [char]0x2588 } else { '#' }
         $filled = [math]::Floor($h.Score / 10)
-        $hb = "$($barChar.ToString() * $filled)$('.' * (10 - $filled))"
-        $healthLine = "Health     : $hb $($h.Score)/100 $($h.Grade)"
+        $hb = ('#' * $filled) + ('.' * (10 - $filled))
+        $healthLine = "Health     : [$hb] $($h.Score)/100 $($h.Grade)"
     } catch {}
     Write-Panel @(
         "Mode       : $ml"
@@ -186,21 +159,21 @@ function Show-Menu {
         if ($script:RunningProcesses) {
             $checkNames = @('chrome','msedge','brave','firefox','discord','slack','teams','spotify','Code')
             $runningApps = $checkNames | Where-Object { $script:RunningProcesses.Contains($_) } | ForEach-Object {
-                $label = switch ($_) {
+                switch ($_) {
                     'chrome' { 'Chrome' }; 'msedge' { 'Edge' }; 'brave' { 'Brave' }; 'firefox' { 'Firefox' }
                     'discord' { 'Discord' }; 'slack' { 'Slack' }; 'teams' { 'Teams' }; 'spotify' { 'Spotify' }
                     'Code' { 'VS Code' }; default { $_ }
                 }
-                $label
             }
         }
         $menuLines = [System.Collections.Generic.List[string]]::new()
         [void]$menuLines.Add('MAIN MENU'); [void]$menuLines.Add('')
-        [void]$menuLines.Add('[1] Standard    temp, browsers, apps, orphans')
-        [void]$menuLines.Add('[2] Aggressive  + DISM + event logs + prefetch')
-        [void]$menuLines.Add('[3] Preview     dry run -- see plan only')
-        [void]$menuLines.Add('[4] Orphans     interactive orphan review')
-        [void]$menuLines.Add('[5] Health      detailed system health report')
+        [void]$menuLines.Add('[1] Standard    temp, browsers, apps, dev caches, GPU, orphans, unused files')
+        [void]$menuLines.Add('[2] Aggressive  standard + DISM + event logs + prefetch')
+        [void]$menuLines.Add('[3] Preview     show the cleanup plan only')
+        [void]$menuLines.Add('[4] Scan        orphan folders + unused files across C:')
+        [void]$menuLines.Add('[5] Health      system health dashboard with details')
+        [void]$menuLines.Add('[6] Disk Usage  analyze largest space consumers on system drive')
         [void]$menuLines.Add('')
         [void]$menuLines.Add('Busy browsers and selected apps are skipped for safety.')
         [void]$menuLines.Add('[Q] Quit')
@@ -217,32 +190,96 @@ function Show-Menu {
             '1' { Invoke-CleanupRun 'Standard';   Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '4' { Show-Header; $script:IsPreview=$false; Start-Step 'Orphan folder scan'; $o=Find-OrphanFolders -InteractiveDelete; Finish-Step "Orphan check complete"; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
+            '4' {
+                try {
+                    Show-Header; $script:IsPreview=$false
+                    Start-Step 'Orphan + unused scan'
+                    $o = Find-OrphanFolders -InteractiveDelete
+                    $u = Find-UnusedFiles -InteractiveDelete
+                    Finish-Step "Scan complete: $o orphans, $u unused files"
+                } catch {
+                    Write-Host "Scan failed: $_" -ForegroundColor Red
+                    Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+                }
+                Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]')
+            }
             '5' { Show-HealthDetail; [void](Read-Host '[Press Enter to return to Menu]') }
+            '6' {
+                try {
+                    Show-Header
+                    Write-Host ''
+                    Write-CenteredLine '=== Disk Usage Analyzer ===' 'Cyan'
+                    Write-Host ''
+                    $dirs = Get-LargestDirectories
+                    if ($dirs.Count -eq 0) {
+                        Write-Host 'No directories found above 10 MB threshold.' -ForegroundColor Yellow
+                    } else {
+                        Write-Host ('{0,-10} {1,-60} {2}' -f 'Size', 'Path', 'Last Modified') -ForegroundColor Cyan
+                        Write-Host ('{0,-10} {1,-60} {2}' -f ('-'*8), ('-'*58), ('-'*19))
+                        foreach ($d in $dirs) {
+                            Write-Host ('{0,-10} {1,-60} {2}' -f $d.SizeText, $d.Path, $d.LastWrite.ToString('yyyy-MM-dd'))
+                        }
+                    }
+                } catch {
+                    Write-Host "Disk Usage scan failed: $_" -ForegroundColor Red
+                }
+                Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]')
+            }
             'Q' { return }
             default { Write-Host 'Invalid.' -ForegroundColor Yellow; Start-Sleep -Milliseconds 500 }
         }
     }
 }
 
+function Show-HealthDetail {
+    try {
+        $h = Get-HealthScore
+        Clear-Host
+        Write-Host ''
+        Write-CenteredLine '==================== System Health Report ====================' $h.GradeColor
+        Write-Host ''
+        Write-Panel @(
+            "Score : $($h.Score)/100 $($h.Grade)"
+            ''
+            "Disk Pressure   : $($h.DiskScore)/30  ($($h.DiskPct)% free)"
+            "Temp/Cache      : $($h.TempScore)/25  ($($h.TempMB) MB)"
+            "Browser Cache   : $($h.BrowserScore)/20 ($($h.BrowserAge)d oldest)"
+            "Orphan Risk     : $($h.OrphanScore)/25 $(if($h.OrphanInfo){'('+$h.OrphanInfo.HighCount+' high, '+$h.OrphanInfo.MedCount+' medium)'}else{'(no orphan data yet)'})"
+        ) -BorderColor $h.GradeColor -TextColor 'White' -MinWidth 60 -MaxWidth 88
+        Write-Host ''
+        Write-Log 'Next full evaluation in 30 seconds.' 'INFO'
+        Write-Host ''
+    } catch {
+        Write-Host "Health check failed: $_" -ForegroundColor Red
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    }
+}
+
 function Show-RunSummary {
     param(
         [string]$Mode, [double]$Duration, $StartSpace, $EndSpace,
-        [hashtable]$Steps, [switch]$Aggressive, [int]$LogsCl
+        [hashtable]$StepCounts = @{}
     )
     $summaryColor = Get-ModeColor $Mode
+    $freedFormatted = Format-FileSize ([Math]::Max(0, $script:BytesFreed))
+    $freedMB = if ($StartSpace) { $EndSpace.MB - $StartSpace.MB } else { 0 }
+    $freedGB = [math]::Round($freedMB / 1024, 2)
+    $pipelineBar = New-AsciiBar -Value $script:TotalSteps -Total $script:TotalSteps -Width 18
     $sumLines = @(
         "Run summary  : $($Mode.ToUpper())"
+        "Pipeline     : $pipelineBar"
         "Finished     : $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
-        "Duration     : ${Duration}s"
+        "Duration     : $([math]::Round($Duration, 1))s"
         "Before       : $($StartSpace.MB) MB ($($StartSpace.GB) GB)"
         "After        : $($EndSpace.MB) MB ($($EndSpace.GB) GB)"
-        "Measured     : $(Format-FileSize ([Math]::Max(0, $script:BytesFreed)))"
-        "Observed     : $($EndSpace.MB - $StartSpace.MB) MB ($([math]::Round(($EndSpace.MB - $StartSpace.MB)/1024,2)) GB)"
+        "Measured     : $freedFormatted"
+        "Observed     : $freedMB MB ($freedGB GB)"
     )
     Write-Host ''
     Write-Panel $sumLines -BorderColor $summaryColor -TextColor 'White' -MinWidth 58 -MaxWidth 86
     Write-Host ''
+
+    # Category breakdown
     if ($script:CategorySizes.Count -gt 0) {
         Write-SectionHeader 'Category Breakdown'
         $script:CategorySizes.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object {
@@ -250,25 +287,40 @@ function Show-RunSummary {
         }
         Write-Host ''
     }
-    Write-SectionHeader 'Impact'
-    Write-Host ("  {0,-16} {1}" -f 'System caches', $Steps.s1) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Browsers', "$($Steps.s2) Chromium | $($Steps.s3) Firefox") -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'App caches', $Steps.s4) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Dev caches', $Steps.s5) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'GPU/Shell', $Steps.s6) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Log files', $Steps.s8) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Empty folders', $Steps.emptyRm) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Stale junk', $Steps.staleRm) -ForegroundColor DarkGray
-    Write-Host ("  {0,-16} {1}" -f 'Orphans', $Steps.orphans) -ForegroundColor $(if($Steps.orphans -gt 0){'Yellow'}else{'DarkGray'})
+
+    # Impact section with per-step counts
+    if ($StepCounts.Count -gt 0) {
+        Write-SectionHeader 'Impact'
+        foreach ($key in @('System caches','Browsers','App caches','Dev caches','Game caches','Cloud sync','Creative apps','Productivity','DevOps tools','GPU/Shell','Log files','Empty folders','Stale junk','Unused files','Orphans','Recycle Bin','Prefetch','DISM','Event logs','Font cache')) {
+            if ($StepCounts.ContainsKey($key)) {
+                $val = $StepCounts[$key]
+                $color = if ($key -eq 'Orphans' -and $val -gt 0) { 'Yellow' } else { 'DarkGray' }
+                Write-Host ("  {0,-16} {1}" -f $key, $val) -ForegroundColor $color
+            }
+        }
+        Write-Host ''
+    }
+
+    # Errors summary
+    if ($script:Errors.Count -gt 0) {
+        Write-SectionHeader 'Errors'
+        $script:Errors | Group-Object Category | Sort-Object Count -Descending | ForEach-Object {
+            Write-Host ("  {0,2}x {1}" -f $_.Count, $_.Name) -ForegroundColor Red
+        }
+        Write-Host ''
+    }
+
+    # Safety skips
     if ($script:SkippedItems.Count -gt 0) {
-        Write-Host ''; Write-SectionHeader 'Safety Skips'
+        Write-SectionHeader 'Safety Skips'
         $script:SkippedItems | Group-Object Reason | Sort-Object Count -Descending | ForEach-Object {
             Write-Host ("  {0,2}x {1}" -f $_.Count, $_.Name) -ForegroundColor DarkGray
         }
+        Write-Host ''
     }
-    Write-Host ''
+
     if ($script:IsPreview) { Write-Log 'PREVIEW mode. Nothing was deleted.' 'WARN' }
     elseif ($script:IsAggressive) { Write-Log 'Aggressive mode completed with extras.' 'WARN' }
 }
 
-Export-ModuleMember -Function Test-VT100Supported, Get-ModeColor, Write-Log, Write-CommandLog, Write-CenteredLine, Write-SectionHeader, Write-Panel, Show-AppLogo, Start-Step, Finish-Step, Update-UiTicker, Show-Header, Show-Menu, Show-RunSummary
+Export-ModuleMember -Function Test-VT100Supported, Get-ModeColor, Write-Log, Write-CenteredLine, Write-SectionHeader, Write-Panel, Show-AppLogo, Start-Step, Finish-Step, Update-UiTicker, Show-Header, Show-Menu, Show-HealthDetail, Show-RunSummary

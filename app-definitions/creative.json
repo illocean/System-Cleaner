@@ -1,0 +1,49 @@
+[
+  {
+    "name": "Adobe Photoshop",
+    "process": "Photoshop",
+    "locations": [
+      { "env": "APPDATA", "path": "Adobe/Adobe Photoshop logs" },
+      { "env": "LOCALAPPDATA", "path": "Temp/Adobe Photoshop" }
+    ]
+  },
+  {
+    "name": "Adobe Premiere Pro",
+    "process": "Premiere Pro",
+    "locations": [
+      { "env": "APPDATA", "path": "Adobe/Premiere Pro logs" },
+      { "env": "LOCALAPPDATA", "path": "Adobe/Premiere Pro/Media Cache" },
+      { "env": "LOCALAPPDATA", "path": "Temp/Premiere Pro" }
+    ]
+  },
+  {
+    "name": "Adobe After Effects",
+    "process": "AfterFX",
+    "locations": [
+      { "env": "APPDATA", "path": "Adobe/After Effects logs" },
+      { "env": "LOCALAPPDATA", "path": "Temp/After Effects" }
+    ]
+  },
+  {
+    "name": "DaVinci Resolve",
+    "process": "Resolve",
+    "locations": [
+      { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Cache" },
+      { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Logs" }
+    ]
+  },
+  {
+    "name": "VLC Media Player",
+    "process": "vlc",
+    "locations": [
+      { "env": "APPDATA", "path": "vlc/cache" }
+    ]
+  },
+  {
+    "name": "Audacity",
+    "process": "Audacity",
+    "locations": [
+      { "env": "APPDATA", "path": "Audacity/Cache" }
+    ]
+  }
+]

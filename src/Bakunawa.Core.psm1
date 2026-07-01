@@ -1,4 +1,6 @@
-# Bakunawa.Core.psm1 — Core engine, safety, sizing, health
+﻿# Bakunawa.Core.psm1 — Core engine, safety, sizing, health
+
+Set-Variable -Name ErrorActionPreference -Value 'SilentlyContinue' -Scope Script
 
 # ── C# ACCELERATOR ──
 try {
@@ -12,7 +14,7 @@ public static class FastSys {
             var d = new DirectoryInfo(path);
             foreach (var f in d.GetFiles()) { size += f.Length; }
             foreach (var s in d.GetDirectories()) { size += GetDirectorySize(s.FullName); }
-        } catch { Write-Verbose "FastSys.GetDirectorySize: $_"; }
+        } catch { /* Ignore locked/unauthorized folders */ }
         return size;
     }
 }
@@ -39,6 +41,9 @@ $script:LogFilePath      = ''
 $script:HealthCache      = $null
 $script:LastOrphanRisks  = $null
 $script:SysLoc           = $null
+$script:UiStopwatch      = $null
+$script:LastUiMs         = 0
+$script:UiTickMs         = 150
 
 function Get-FreeSpaceInfo {
     param([string]$DriveLetter)
@@ -93,10 +98,20 @@ function Get-EnvPath {
 }
 
 function Join-EnvPath {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$ChildPath)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$ChildPath
+    )
     $b = Get-EnvPath -Name $Name
     if (-not $b) { return $null }
-    return Resolve-FullPath (Join-Path $b $ChildPath)
+    $joined = $b
+    foreach ($segment in $ChildPath) {
+        if ([string]::IsNullOrWhiteSpace($segment)) { continue }
+        $joined = Join-Path $joined $segment
+    }
+    # Skip Resolve-FullPath if path contains wildcards to avoid errors
+    if ($joined -match '[\?\*]') { return $joined }
+    return Resolve-FullPath $joined
 }
 
 function Test-IsAdministrator {
@@ -106,8 +121,20 @@ function Test-IsAdministrator {
 }
 
 function Restart-Elevated {
-    param([string]$SelectedMode)
-    $args_ = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
+    param(
+        [string]$SelectedMode,
+        [string]$ScriptPath = ''
+    )
+    # Resolve the script to launch: caller-provided path, or $PSCommandPath, or fallback relative to module
+    if (-not $ScriptPath -or -not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
+        $ScriptPath = if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath -PathType Leaf)) {
+            $PSCommandPath
+        } else {
+            # Fallback: Bakunawa.ps1 lives one dir up from src/
+            Join-Path (Split-Path $PSScriptRoot -Parent) 'Bakunawa.ps1'
+        }
+    }
+    $args_ = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$ScriptPath`"")
     if ($SelectedMode) { $args_ += '-Mode'; $args_ += $SelectedMode }
     try {
         Write-Host ''
@@ -285,6 +312,7 @@ function Test-AnyProcessRunning {
 function Register-SkippedItem {
     param([string]$Reason, [string]$Target)
     $script:SkippedItems += [PSCustomObject]@{ Reason = $Reason; Target = $Target }
+    Write-Log "Skipped ${Target}: $Reason" 'WARN'
 }
 
 function Get-OrphanRiskScore {
@@ -358,21 +386,62 @@ function Get-HealthScore {
 
 function Get-AppLogoLines {
     @(
-        ' .------------------------------------------------------------. '
-        ' |   ____        _           _                                | '
-        ' |  | _ \      | |         | |                               | '
-        ' |  | |_) | __ _| | ____ _  | |__   __ _ _ __  _   _ ___      | '
-        ' |  |  _ < / _` | |/ / _` | | `_ \ / _` | `_ \| | | / __|     | '
-        ' |  | |_) | (_| |   < (_| | | |_) | (_| | |_) | |_| \__ \     | '
-        ' |  |____/ \__,_|_|\_\__,_| |_.__/ \__,_| .__/ \__,_|___/     | '
-        ' |                                       | |                  | '
-        ' |    B A K U N A W A   v3              |_|   Devour Waste    | '
-        ' `------------------------------------------------------------` '
+        '██████╗  █████╗ ██╗  ██╗██╗   ██╗███╗   ██╗ █████╗ ██╗    ██╗ █████╗ '
+        '██╔══██╗██╔══██╗██║ ██╔╝██║   ██║████╗  ██║██╔══██╗██║    ██║██╔══██╗'
+        '██████╔╝███████║█████╔╝ ██║   ██║██╔██╗ ██║███████║██║ █╗ ██║███████║'
+        '██╔══██╗██╔══██║██╔═██╗ ██║   ██║██║╚██╗██║██╔══██║██║███╗██║██╔══██║'
+        '██████╔╝██║  ██║██║  ██╗╚██████╔╝██║ ╚████║██║  ██║╚███╔███╔╝██║  ██║'
+        '╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝'
     )
 }
 
 function Get-ConsoleWidth {
     try { $w = $Host.UI.RawUI.WindowSize.Width; if($w -lt 60){return 60}else{return $w} } catch { return 100 }
+}
+
+function New-Checkpoint {
+    param([string]$Description = 'Bakunawa cleanup checkpoint')
+    try {
+        Checkpoint-Computer -Description $Description -RestorePointType MODIFY_SETTINGS -EA Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-LargestDirectories {
+    param(
+        [string]$RootPath = $env:SystemDrive,
+        [int]$TopN = 20,
+        [int]$MinDepth = 2,
+        [int]$MaxDepth = 4
+    )
+    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $visited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $roots = @(
+        "$env:LOCALAPPDATA"
+        "$env:APPDATA"
+        "$env:ProgramData"
+        "$env:USERPROFILE\.cache"
+        "$env:SystemRoot\Temp"
+    ) | Where-Object { $_ -and (Test-Path $_ -PathType Container) }
+    foreach ($base in $roots) {
+        Get-ChildItem $base -Directory -Force -EA SilentlyContinue | ForEach-Object {
+            $p = $_.FullName
+            if ($visited.Add($p)) {
+                $size = Get-DirectorySize $p
+                if ($size -gt 10MB) {
+                    [void]$results.Add([PSCustomObject]@{
+                        Path = $p
+                        SizeBytes = $size
+                        SizeText = Format-FileSize $size
+                        LastWrite = $_.LastWriteTime
+                    })
+                }
+            }
+        }
+    }
+    return ($results | Sort-Object SizeBytes -Descending | Select-Object -First $TopN)
 }
 
 function Get-DisplayText {
@@ -430,7 +499,7 @@ function Get-SystemLocations {
         SoftDistDL   = $(if($wr){Join-Path $wr 'SoftwareDistribution\Download'})
         Prefetch     = $(if($wr){Join-Path $wr 'Prefetch'})
         DeliveryOpt  = $(if($wr){Join-Path $wr 'SoftwareDistribution\DeliveryOptimization'})
-RecycleBin   = $(if($sd){Join-Path $sd '$Recycle.Bin'})
+        RecycleBin   = $(if($sd){Join-Path $sd '$Recycle.Bin'})
     }
 }
 

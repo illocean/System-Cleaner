@@ -1,0 +1,34 @@
+[
+  {
+    "name": "OneDrive",
+    "process": "OneDrive",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "OneDrive/logs" },
+      { "env": "LOCALAPPDATA", "path": "OneDrive/cache" }
+    ]
+  },
+  {
+    "name": "Google Drive",
+    "process": "GoogleDriveFS",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Google/DriveFS/logs" },
+      { "env": "LOCALAPPDATA", "path": "Google/DriveFS/cache" }
+    ]
+  },
+  {
+    "name": "Dropbox",
+    "process": "Dropbox",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Dropbox/cache" },
+      { "env": "LOCALAPPDATA", "path": "Dropbox/logs" },
+      { "env": "APPDATA", "path": "Dropbox/logs" }
+    ]
+  },
+  {
+    "name": "Box Sync",
+    "process": "BoxSync",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Box/Box Sync/logs" }
+    ]
+  }
+]

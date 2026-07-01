@@ -10,6 +10,26 @@
     ]
   },
   {
+    "name": "Discord Canary",
+    "process": "discordcanary",
+    "locations": [
+      { "env": "APPDATA", "path": "discordcanary/Cache" },
+      { "env": "APPDATA", "path": "discordcanary/Code Cache" },
+      { "env": "APPDATA", "path": "discordcanary/GPUCache" },
+      { "env": "APPDATA", "path": "discordcanary/blob_storage" }
+    ]
+  },
+  {
+    "name": "Discord PTB",
+    "process": "discordptb",
+    "locations": [
+      { "env": "APPDATA", "path": "discordptb/Cache" },
+      { "env": "APPDATA", "path": "discordptb/Code Cache" },
+      { "env": "APPDATA", "path": "discordptb/GPUCache" },
+      { "env": "APPDATA", "path": "discordptb/blob_storage" }
+    ]
+  },
+  {
     "name": "Slack",
     "process": "slack",
     "locations": [

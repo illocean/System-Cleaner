@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Steam",
+    "process": "steam",
+    "locations": [
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/logs" },
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/appcache" }
+    ]
+  },
+  {
+    "name": "Epic Games Launcher",
+    "process": "EpicGamesLauncher",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/webcache" }
+    ]
+  },
+  {
+    "name": "Battle.net",
+    "process": "Battle.net",
+    "locations": [
+      { "env": "PROGRAMDATA", "path": "Battle.net/Agent/logs" },
+      { "env": "APPDATA", "path": "Battle.net/Cache" }
+    ]
+  },
+  {
+    "name": "GOG Galaxy",
+    "process": "GalaxyClient",
+    "locations": [
+      { "env": "PROGRAMDATA", "path": "GOG.com/Galaxy/Logs" },
+      { "env": "APPDATA", "path": "GOG.com/Galaxy/Crashes" }
+    ]
+  },
+  {
+    "name": "EA App",
+    "process": "EADesktop",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Electronic Arts/EA Desktop/logs" }
+    ]
+  },
+  {
+    "name": "Ubisoft Connect",
+    "process": "UbisoftConnect",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Ubisoft Game Launcher/logs" }
+    ]
+  },
+  {
+    "name": "Minecraft",
+    "process": "Minecraft.Windows",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalCache/Local/Minecraft/logs" }
+    ]
+  },
+  {
+    "name": "Unity Editor",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Unity/Editor/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Unity/cache" }
+    ]
+  }
+]

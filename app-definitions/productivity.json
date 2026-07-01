@@ -1,0 +1,54 @@
+[
+  {
+    "name": "Microsoft Office",
+    "process": null,
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/16.0/logs" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/16.0/OfficeFileCache" }
+    ]
+  },
+  {
+    "name": "1Password",
+    "process": "1Password",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "1Password/logs" },
+      { "env": "LOCALAPPDATA", "path": "1Password/cache" }
+    ]
+  },
+  {
+    "name": "Bitwarden",
+    "process": "Bitwarden",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Bitwarden/logs" }
+    ]
+  },
+  {
+    "name": "Postman",
+    "process": "Postman",
+    "locations": [
+      { "env": "APPDATA", "path": "Postman/logs" },
+      { "env": "LOCALAPPDATA", "path": "Postman/cache" }
+    ]
+  },
+  {
+    "name": "Insomnia",
+    "process": "Insomnia",
+    "locations": [
+      { "env": "APPDATA", "path": "Insomnia/logs" }
+    ]
+  },
+  {
+    "name": "LibreOffice",
+    "process": "soffice",
+    "locations": [
+      { "env": "APPDATA", "path": "LibreOffice/cache" }
+    ]
+  },
+  {
+    "name": "AutoHotkey",
+    "process": "AutoHotkey",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "AutoHotkey/logs" }
+    ]
+  }
+]

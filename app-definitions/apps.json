@@ -1,0 +1,105 @@
+[
+  {
+    "name": "Spotify",
+    "process": "Spotify",
+    "locations": [
+      { "env": "APPDATA", "path": "Spotify/Cache" },
+      { "env": "APPDATA", "path": "Spotify/Storage" },
+      { "env": "LOCALAPPDATA", "path": "Spotify/Storage" },
+      { "env": "LOCALAPPDATA", "path": "Spotify/Data" }
+    ]
+  },
+  {
+    "name": "Zoom",
+    "process": "Zoom",
+    "locations": [
+      { "env": "APPDATA", "path": "Zoom/data" },
+      { "env": "APPDATA", "path": "Zoom/logs" },
+      { "env": "LOCALAPPDATA", "path": "Zoom/logs" }
+    ]
+  },
+  {
+    "name": "OBS Studio",
+    "process": "obs64",
+    "locations": [
+      { "env": "APPDATA", "path": "obs-studio/logs" },
+      { "env": "APPDATA", "path": "obs-studio/crashes" }
+    ]
+  },
+  {
+    "name": "qBittorrent",
+    "process": "qbittorrent",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "qBittorrent/logs" }
+    ]
+  },
+  {
+    "name": "TeamViewer",
+    "process": "TeamViewer",
+    "locations": [
+      { "env": "APPDATA", "path": "TeamViewer" }
+    ]
+  },
+  {
+    "name": "Stremio",
+    "process": "stremio",
+    "locations": [
+      { "env": "APPDATA", "path": "Stremio/{sub:cache}" },
+      { "env": "APPDATA", "path": "Stremio/{sub:temp}" },
+      { "env": "APPDATA", "path": "Stremio/{sub:logs}" }
+    ]
+  },
+  {
+    "name": "Obsidian",
+    "process": "Obsidian",
+    "locations": [
+      { "env": "APPDATA", "path": "obsidian/Cache" },
+      { "env": "APPDATA", "path": "obsidian/GPUCache" }
+    ]
+  },
+  {
+    "name": "ShareX",
+    "process": "ShareX",
+    "locations": [
+      { "env": "USERPROFILE", "path": "Documents/ShareX/Logs" }
+    ]
+  },
+  {
+    "name": "Roblox",
+    "process": "Roblox",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Roblox/logs" }
+    ]
+  },
+  {
+    "name": "draw.io",
+    "process": "draw.io",
+    "locations": [
+      { "env": "APPDATA", "path": "draw.io/Cache" }
+    ]
+  },
+  {
+    "name": "Windows Terminal",
+    "process": "WindowsTerminal",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Windows Terminal/Cache" }
+    ]
+  },
+  {
+    "name": "Notion",
+    "process": "Notion",
+    "locations": [
+      { "env": "APPDATA", "path": "Notion/Cache" },
+      { "env": "APPDATA", "path": "Notion/Code Cache" },
+      { "env": "APPDATA", "path": "Notion/GPUCache" },
+      { "env": "APPDATA", "path": "Notion/blob_storage" }
+    ]
+  },
+  {
+    "name": "Figma",
+    "process": "Figma",
+    "locations": [
+      { "env": "APPDATA", "path": "Figma/Cache" }
+    ]
+  }
+]

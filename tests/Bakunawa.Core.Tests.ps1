@@ -65,6 +65,13 @@ Describe 'Bakunawa.Core health score' {
     }
 }
 
+Describe 'Bakunawa.Core removed functions' {
+    It 'Get-LargestDirectories is not exported' {
+        $commands = Get-Command -Module Bakunawa.Core
+        $commands.Name | Should -Not -Contain 'Get-LargestDirectories'
+    }
+}
+
 Describe 'Bakunawa.Core safety' {
     It 'compacts protected paths into short labels' {
         $summary = Format-CompactList -Items @(
@@ -92,6 +99,38 @@ Describe 'Bakunawa.Core safety' {
             $script:ExcludedPaths = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
             [void]$script:ExcludedPaths.Add('C:\Protected')
             Test-SafeCleanupTarget -Path 'C:\Protected\file.txt' -ApprovedRoots @('C:\Protected') | Should -Be $false
+        }
+    }
+}
+
+Describe 'Bakunawa.Core directory size estimate' {
+    It 'returns zero for non-existent path' {
+        $r = Get-DirectorySizeEstimate -Path 'C:\NonExistentPath_Bakunawa_Test'
+        $r.Bytes | Should -Be 0
+        $r.FileCount | Should -Be 0
+        $r.IsEstimate | Should -Be $false
+    }
+
+    It 'returns correct structure for a real folder' {
+        $tmp = [System.IO.Path]::GetTempPath()
+        $r = Get-DirectorySizeEstimate -Path $tmp
+        $r.PSObject.Properties.Name | Should -Contain 'Path'
+        $r.PSObject.Properties.Name | Should -Contain 'Bytes'
+        $r.PSObject.Properties.Name | Should -Contain 'FileCount'
+        $r.PSObject.Properties.Name | Should -Contain 'IsEstimate'
+        $r.Bytes | Should -BeGreaterOrEqual 0
+    }
+
+    It 'handles empty directories correctly' {
+        $emptyDir = Join-Path ([System.IO.Path]::GetTempPath()) "bakunawa_test_empty_$(Get-Random)"
+        New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+        try {
+            $r = Get-DirectorySizeEstimate -Path $emptyDir
+            $r.Bytes | Should -Be 0
+            $r.FileCount | Should -Be 0
+            $r.IsEstimate | Should -Be $false
+        } finally {
+            Remove-Item -LiteralPath $emptyDir -Force -EA SilentlyContinue
         }
     }
 }

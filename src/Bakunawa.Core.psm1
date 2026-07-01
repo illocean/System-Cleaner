@@ -69,6 +69,32 @@ function Get-DirectorySize {
     if ($null -eq $sum) { [long]0 } else { [long]$sum }
 }
 
+function Get-DirectorySizeEstimate {
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]$Path,
+        [int]$MaxFiles = 1000
+    )
+    process {
+        if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+            return [PSCustomObject]@{ Path = $Path; Bytes = [long]0; FileCount = 0; IsEstimate = $false }
+        }
+        $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -EA SilentlyContinue | Select-Object -First $MaxFiles
+        $count = @($files).Count
+        if ($count -eq 0) {
+            return [PSCustomObject]@{ Path = $Path; Bytes = [long]0; FileCount = 0; IsEstimate = $false }
+        }
+        $sum = ($files | Measure-Object -Property Length -Sum -EA SilentlyContinue).Sum
+        if ($null -eq $sum) { $sum = 0 }
+        return [PSCustomObject]@{
+            Path       = $Path
+            Bytes      = [long]$sum
+            FileCount  = $count
+            IsEstimate = ($count -ge $MaxFiles)
+        }
+    }
+}
+
 function Format-FileSize {
     param([long]$Bytes)
     if ($Bytes -ge 1GB) { return '{0:N2} GB' -f ($Bytes / 1GB) }
@@ -407,41 +433,6 @@ function New-Checkpoint {
     } catch {
         return $false
     }
-}
-
-function Get-LargestDirectories {
-    param(
-        [string]$RootPath = $env:SystemDrive,
-        [int]$TopN = 20,
-        [int]$MinDepth = 2,
-        [int]$MaxDepth = 4
-    )
-    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
-    $visited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $roots = @(
-        "$env:LOCALAPPDATA"
-        "$env:APPDATA"
-        "$env:ProgramData"
-        "$env:USERPROFILE\.cache"
-        "$env:SystemRoot\Temp"
-    ) | Where-Object { $_ -and (Test-Path $_ -PathType Container) }
-    foreach ($base in $roots) {
-        Get-ChildItem $base -Directory -Force -EA SilentlyContinue | ForEach-Object {
-            $p = $_.FullName
-            if ($visited.Add($p)) {
-                $size = Get-DirectorySize $p
-                if ($size -gt 10MB) {
-                    [void]$results.Add([PSCustomObject]@{
-                        Path = $p
-                        SizeBytes = $size
-                        SizeText = Format-FileSize $size
-                        LastWrite = $_.LastWriteTime
-                    })
-                }
-            }
-        }
-    }
-    return ($results | Sort-Object SizeBytes -Descending | Select-Object -First $TopN)
 }
 
 function Get-DisplayText {

@@ -37,7 +37,8 @@
     "name": "TeamViewer",
     "process": "TeamViewer",
     "locations": [
-      { "env": "APPDATA", "path": "TeamViewer" }
+      { "env": "APPDATA", "path": "TeamViewer/CrashDumps" },
+      { "env": "APPDATA", "path": "TeamViewer/Logs" }
     ]
   },
   {

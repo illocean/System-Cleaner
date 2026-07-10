@@ -1,6 +1,6 @@
 ﻿# Bakunawa.Core.psm1 — Core engine, safety, sizing, health
 
-Set-Variable -Name ErrorActionPreference -Value 'SilentlyContinue' -Scope Script
+$ErrorActionPreference = 'Continue'
 
 # ── C# ACCELERATOR ──
 try {
@@ -13,9 +13,34 @@ public static class FastSys {
         try {
             var d = new DirectoryInfo(path);
             foreach (var f in d.GetFiles()) { size += f.Length; }
-            foreach (var s in d.GetDirectories()) { size += GetDirectorySize(s.FullName); }
+            foreach (var s in d.GetDirectories()) {
+                if ((s.Attributes & FileAttributes.ReparsePoint) != 0) { continue; }
+                size += GetDirectorySize(s.FullName);
+            }
         } catch { /* Ignore locked/unauthorized folders */ }
         return size;
+    }
+    public static long EnumerateFilesCount(string path, int maxFiles) {
+        long count = 0;
+        try {
+            var queue = new System.Collections.Generic.Queue<string>();
+            queue.Enqueue(path);
+            while (queue.Count > 0 && count < maxFiles) {
+                var dir = queue.Dequeue();
+                try {
+                    var di = new DirectoryInfo(dir);
+                    foreach (var f in di.GetFiles()) {
+                        count++;
+                        if (count >= maxFiles) return count;
+                    }
+                    foreach (var s in di.GetDirectories()) {
+                        if ((s.Attributes & FileAttributes.ReparsePoint) != 0) { continue; }
+                        queue.Enqueue(s.FullName);
+                    }
+                } catch { /* Skip locked/unreadable subdirectories */ }
+            }
+        } catch { /* Ignore top-level failures */ }
+        return count;
     }
 }
 "@ -ErrorAction SilentlyContinue
@@ -63,8 +88,11 @@ function Get-FreeSpaceInfo {
 function Get-DirectorySize {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return [long]0 }
-    if ([bool]('FastSys' -as [type])) { return [FastSys]::GetDirectorySize($Path) }
-    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -EA SilentlyContinue |
+    if ([bool]('FastSys' -as [type])) {
+        try { return [FastSys]::GetDirectorySize($Path) } catch { Write-Verbose "Get-DirectorySize C# accelerator: $_" }
+        # ponytail: fall through to PowerShell fallback below
+    }
+    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -File -EA SilentlyContinue |
         Measure-Object -Property Length -Sum -EA SilentlyContinue).Sum
     if ($null -eq $sum) { [long]0 } else { [long]$sum }
 }
@@ -79,6 +107,19 @@ function Get-DirectorySizeEstimate {
         if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
             return [PSCustomObject]@{ Path = $Path; Bytes = [long]0; FileCount = 0; IsEstimate = $false }
         }
+        # Fast path: C# accelerator (compiled, ~100× faster than Get-ChildItem -Recurse)
+        if ([bool]('FastSys' -as [type])) {
+            $bytes = [FastSys]::GetDirectorySize($Path)
+            $count = 0
+            try {
+                $count = [FastSys]::EnumerateFilesCount($Path, $MaxFiles)
+            } catch { $count = 0 }
+            return [PSCustomObject]@{
+                Path = $Path; Bytes = $bytes; FileCount = $count
+                IsEstimate = ($count -ge $MaxFiles)
+            }
+        }
+        # Slow fallback (PowerShell-only environments)
         $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -EA SilentlyContinue | Select-Object -First $MaxFiles
         $count = @($files).Count
         if ($count -eq 0) {
@@ -87,9 +128,7 @@ function Get-DirectorySizeEstimate {
         $sum = ($files | Measure-Object -Property Length -Sum -EA SilentlyContinue).Sum
         if ($null -eq $sum) { $sum = 0 }
         return [PSCustomObject]@{
-            Path       = $Path
-            Bytes      = [long]$sum
-            FileCount  = $count
+            Path = $Path; Bytes = [long]$sum; FileCount = $count
             IsEstimate = ($count -ge $MaxFiles)
         }
     }
@@ -425,16 +464,6 @@ function Get-ConsoleWidth {
     try { $w = $Host.UI.RawUI.WindowSize.Width; if($w -lt 60){return 60}else{return $w} } catch { return 100 }
 }
 
-function New-Checkpoint {
-    param([string]$Description = 'Bakunawa cleanup checkpoint')
-    try {
-        Checkpoint-Computer -Description $Description -RestorePointType MODIFY_SETTINGS -EA Stop
-        return $true
-    } catch {
-        return $false
-    }
-}
-
 function Get-DisplayText {
     param([string]$Text,[int]$MaxWidth)
     if(!$Text){return ''}
@@ -479,11 +508,12 @@ function Get-SystemLocations {
     $wr = Get-EnvPath 'SystemRoot'
     $pd = Get-EnvPath 'ProgramData'
     $sd = Get-EnvPath 'SystemDrive'
-    return [PSCustomObject]@{
+    $result = [PSCustomObject]@{
         WindowsRoot  = $wr
         ProgramData  = $pd
         SystemDrive  = $sd
         WindowsTemp  = $(if($wr){Join-Path $wr 'Temp'})
+        CrashDumps   = $(if($wr){Join-Path $wr 'CrashDumps'})
         WerArchive   = $(if($pd){Join-Path $pd 'Microsoft\Windows\WER\ReportArchive'})
         WerQueue     = $(if($pd){Join-Path $pd 'Microsoft\Windows\WER\ReportQueue'})
         NetDownloader= $(if($pd){Join-Path $pd 'Microsoft\Network\Downloader'})
@@ -492,6 +522,8 @@ function Get-SystemLocations {
         DeliveryOpt  = $(if($wr){Join-Path $wr 'SoftwareDistribution\DeliveryOptimization'})
         RecycleBin   = $(if($sd){Join-Path $sd '$Recycle.Bin'})
     }
+    $script:SysLoc = $result
+    return $result
 }
 
 Export-ModuleMember -Function * -Variable *

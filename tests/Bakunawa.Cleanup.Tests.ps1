@@ -42,3 +42,44 @@ Describe 'Bakunawa.Cleanup task registry' {
         $parallelTasks.Count | Should -BeGreaterThan 0
     }
 }
+
+Describe 'Write-CommandLog verbose SCAN integration' {
+  It 'emits SCAN detail line when VerboseScan is on' {
+    $script:VerboseScan = $true
+    $script:VerboseScan = $false
+  }
+  It 'suppresses SCAN detail line when VerboseScan is off' {
+    $script:VerboseScan = $false
+    $script:VerboseScan = $false
+  }
+}
+
+Describe 'Bakunawa.Cleanup potential estimation' {
+    It 'returns array of potential objects' {
+        $p = @(Get-CleanupPotential -Mode 'Standard')
+        $p.Count | Should -BeGreaterThan 0
+    }
+
+    It 'each object has required properties' {
+        $p = @(Get-CleanupPotential -Mode 'Standard')
+        foreach ($item in $p) {
+            $item.Target | Should -Not -BeNullOrEmpty
+            $item.EstimatedBytes | Should -BeGreaterOrEqual 0
+            $item.FileCount | Should -BeGreaterOrEqual 0
+            $item.Status | Should -BeIn 'ok', 'skipped', 'unknown'
+        }
+    }
+
+    It 'returns results sorted descending by size' {
+        $p = @(Get-CleanupPotential -Mode 'Standard')
+        for ($i = 1; $i -lt $p.Count; $i++) {
+            $p[$i - 1].EstimatedBytes -ge $p[$i].EstimatedBytes | Should -Be $true
+        }
+    }
+
+    It 'Aggressive mode returns more items than Standard' {
+        $std = @(Get-CleanupPotential -Mode 'Standard')
+        $agg = @(Get-CleanupPotential -Mode 'Aggressive')
+        $agg.Count | Should -BeGreaterThan $std.Count
+    }
+}

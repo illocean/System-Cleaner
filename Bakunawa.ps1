@@ -1,15 +1,16 @@
-﻿[CmdletBinding()]
-param(
-    [ValidateSet('Menu', 'Standard', 'Aggressive', 'Preview')]
-    [string]$Mode = 'Menu',
-    [string[]]$ExtraExcludePath = @(),
-    [switch]$NoPause,
-    [switch]$SkipBootstrap,
-    [string]$LogFile = ''
+﻿param(
+  [ValidateSet('Menu', 'Standard', 'Aggressive', 'Preview')]
+  [string]$Mode = 'Menu',
+  [string[]]$ExtraExcludePath = @(),
+  [switch]$NoPause,
+  [switch]$SkipBootstrap,
+  [string]$LogFile = '',
+  [switch]$VerboseScan
 )
 
+$ErrorActionPreference = 'Continue'
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Set-Variable -Name ErrorActionPreference -Value 'SilentlyContinue' -Scope Script
 $Host.UI.RawUI.WindowTitle = 'Bakunawa v3'
 
 # ── Detect WSL ──
@@ -19,7 +20,7 @@ function Test-IsWSL {
             $ver = Get-Content /proc/version -EA SilentlyContinue
             if ($ver -match 'Microsoft|WSL') { return $true }
         }
-    } catch {}
+    } catch { Write-Verbose "Test-IsWSL: $_" }
     return $false
 }
 
@@ -39,8 +40,8 @@ if (-not $script:ThisScriptPath) {
 # ── Convert any path to a Windows path ──
 function Convert-ToWindowsPath {
     param([string]$Path)
-    if (-not $Path) { return $null }
-    # WSL /mnt/c/... -> C:\...
+  if ([string]::IsNullOrWhiteSpace($Path)) { Write-Verbose "Convert-ToWindowsPath: empty input"; return $null }
+  # WSL /mnt/c/... -> C:\...
     if ($Path -match '^/mnt/([a-zA-Z])/(.*)') {
         $drive = $Matches[1].ToUpper()
         $rest  = $Matches[2] -replace '/', '\'
@@ -92,7 +93,7 @@ function Restart-Elevated {
     } else {
         # Native Windows: direct UAC elevation
         $exe = 'powershell.exe'
-        if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { $exe = 'pwsh.exe' }
+        if (Get-Command pwsh.exe -ErrorAction Ignore) { $exe = 'pwsh.exe' }
         try {
             Write-Host ''
             Write-Host 'Requesting administrator privileges...' -ForegroundColor Yellow
@@ -128,9 +129,8 @@ $script:ExcludedPaths = Get-ExcludedPaths -ExtraExcludePath $mergedExclusions
 $script:RunningProcesses = Get-RunningProcessNames
 $script:SpinnerFrames = @('|','/','-','\')
 $script:SpinnerIndex = 0
-$script:UiStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-$script:LastUiMs = [long]0
 $script:UiTickMs = 250
+$script:VerboseScan = $VerboseScan.IsPresent
 
 if ($LogFile) {
     $script:LogFilePath = Resolve-FullPath $LogFile
@@ -142,6 +142,7 @@ if ($LogFile) {
 }
 
 # $SkipBootstrap handled above — modules loaded, proceed to dispatch
+if ($SkipBootstrap) { return }
 
 switch ($Mode) {
     'Standard'   { Invoke-CleanupRun 'Standard';   if(-not $NoPause){Write-Host '';[void](Read-Host 'Press Enter to close')} }

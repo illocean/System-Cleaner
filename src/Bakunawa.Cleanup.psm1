@@ -1,10 +1,14 @@
 ﻿# Bakunawa.Cleanup.psm1 — Cleanup task execution
 
 function Write-CommandLog {
-    param([string]$Verb, [string]$Target)
-    if ($Verb) { Update-UiTicker -CurrentOperation $Verb }
-    if ([string]::IsNullOrWhiteSpace($Target)) { Write-Log $Verb 'CMD'; return }
-    Write-Log "$Verb $Target" 'CMD'
+  param([string]$Verb, [string]$Target)
+  if ($Verb) { Update-UiTicker -CurrentOperation $Verb }
+  if ([string]::IsNullOrWhiteSpace($Target)) { Write-Log $Verb 'CMD'; return }
+  Write-Log "$Verb $Target" 'CMD'
+  if ($script:VerboseScan) {
+    $detail = if ($Target) { "$Verb : $Target" } else { $Verb }
+    Write-Log -Level SCAN -Message $detail
+  }
 }
 
 function Get-CleanupTasks {
@@ -33,18 +37,209 @@ function Get-CleanupTasks {
     return @($tasks)
 }
 
+$script:PotentialCache = @{}
+$script:PotentialCacheTime = @{}
+$script:PotentialCacheTTL = 30  # seconds
+
+function Get-CleanupPotential {
+    param([ValidateSet('Standard','Aggressive')][string]$Mode = 'Standard')
+    $now = [datetime]::UtcNow
+    $key = "mode_$Mode"
+    if ($script:PotentialCache.ContainsKey($key)) {
+        $elapsed = ($now - $script:PotentialCacheTime[$key]).TotalSeconds
+        if ($elapsed -lt $script:PotentialCacheTTL) {
+            $cached = $script:PotentialCache[$key]
+            return @($cached)  # always return fresh copy to avoid mutation
+        }
+    }
+    $tasks = Get-CleanupTasks -Mode $Mode
+    $results = foreach ($t in $tasks) {
+        $est = Estimate-TaskSize -TaskName $t.Name
+        $status = if ($est.Status) { $est.Status } else { 'unknown' }
+        [PSCustomObject]@{
+            Target = $t.Name
+            EstimatedBytes = $est.EstimatedBytes
+            FileCount = $est.FileCount
+            Status = $status
+            IsEstimate = $est.IsEstimate
+        }
+    }
+    $sorted = @($results | Sort-Object EstimatedBytes -Descending)
+    $script:PotentialCache[$key] = $sorted
+    $script:PotentialCacheTime[$key] = $now
+    return $sorted
+}
+
+function Estimate-TaskSize {
+    param([string]$TaskName)
+    $bytes = [long]0; $files = 0; $status = 'ok'; $isEstimate = $false
+
+    switch ($TaskName) {
+        'System Caches' {
+            $paths = @(
+                (Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'),
+                $script:SysLoc.WindowsTemp, $script:SysLoc.CrashDumps,
+                $script:SysLoc.WerArchive, $script:SysLoc.SoftDistDL,
+                $script:SysLoc.DeliveryOpt
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+            foreach ($p in $paths) { $e = Get-DirectorySizeEstimate -Path $p; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true } }
+        }
+        'Browser Caches' {
+            # Chrome / Edge / Brave / Vivaldi profile caches
+            foreach ($browser in @(
+                @{Root=(Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data'); Label='Chrome'}
+                @{Root=(Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data'); Label='Edge'}
+                @{Root=(Join-EnvPath 'LOCALAPPDATA' 'BraveSoftware\Brave-Browser\User Data'); Label='Brave'}
+                @{Root=(Join-EnvPath 'APPDATA' 'Opera Software\Opera Stable'); Label='Opera'}
+                @{Root=(Join-EnvPath 'LOCALAPPDATA' 'Vivaldi\User Data'); Label='Vivaldi'}
+            )) {
+                if (-not (Test-Path -LiteralPath $browser.Root -PathType Container)) { continue }
+                foreach ($prof in (Get-ChildItem $browser.Root -Directory -Force -EA SilentlyContinue)) {
+                    foreach ($cd in @('Cache','Code Cache','GPUCache','Media Cache','DawnCache','ShaderCache','GrShaderCache','GraphiteDawnCache')) {
+                        $cp = Join-Path $prof.FullName $cd
+                        if (Test-Path -LiteralPath $cp -PathType Container) {
+                            $e = Get-DirectorySizeEstimate -Path $cp; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true }
+                        }
+                    }
+                }
+            }
+            # Firefox
+            $ffRoot = Join-EnvPath 'LOCALAPPDATA' 'Mozilla\Firefox\Profiles'
+            if (Test-Path -LiteralPath $ffRoot -PathType Container) {
+                foreach ($prof in (Get-ChildItem $ffRoot -Directory -Force -EA SilentlyContinue)) {
+                    foreach ($cd in @('cache2','startupCache','thumbnails','OfflineCache')) {
+                        $cp = Join-Path $prof.FullName $cd
+                        if (Test-Path -LiteralPath $cp -PathType Container) {
+                            $e = Get-DirectorySizeEstimate -Path $cp; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true }
+                        }
+                    }
+                }
+            }
+        }
+        'App Caches' {
+            $e = Estimate-AppCategory -Categories @('messaging','apps'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'Dev Caches' {
+            $e = Estimate-AppCategory -Categories @('devtools'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'Game Caches' {
+            $e = Estimate-AppCategory -Categories @('games'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'Cloud Sync' {
+            $e = Estimate-AppCategory -Categories @('cloud'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'Creative Apps' {
+            $e = Estimate-AppCategory -Categories @('creative'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'Productivity' {
+            $e = Estimate-AppCategory -Categories @('productivity'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'DevOps Tools' {
+            $e = Estimate-AppCategory -Categories @('devops'); $bytes += $e.Bytes; $files += $e.Files; if ($e.IsEstimate) { $isEstimate = $true }
+        }
+        'GPU/Shell Caches' {
+            $paths = @(
+                (Join-EnvPath 'LOCALAPPDATA' 'D3DSCache'),
+                (Join-EnvPath 'LOCALAPPDATA' 'NVIDIA\DXCache'),
+                (Join-EnvPath 'LOCALAPPDATA' 'NVIDIA\GLCache'),
+                (Join-EnvPath 'LOCALAPPDATA' 'AMD\DxCache'),
+                (Join-EnvPath 'LOCALAPPDATA' 'Intel\ShaderCache'),
+                (Join-EnvPath 'LOCALAPPDATA' 'CEF\Cache')
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+            foreach ($p in $paths) { $e = Get-DirectorySizeEstimate -Path $p; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true } }
+            # thumbcache
+            $thumbRoot = Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\Explorer'
+            if (Test-Path -LiteralPath $thumbRoot) {
+                $thumbFiles = Get-ChildItem $thumbRoot -File -Force -EA SilentlyContinue | Where-Object { $_.Name -like 'thumbcache_*.db' -or $_.Name -like 'iconcache_*.db' }
+                foreach ($f in $thumbFiles) { $bytes += $f.Length; $files++ }
+            }
+        }
+        'Recycle Bin' {
+            try {
+                (Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=3" -EA SilentlyContinue) | ForEach-Object {
+                    $rbPath = $_.DeviceID.TrimEnd(':') + ':\$Recycle.Bin'
+                    if (Test-Path -LiteralPath $rbPath -PathType Container) {
+                        $e = Get-DirectorySizeEstimate -Path $rbPath -MaxFiles 200
+                        $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true }
+                    }
+                }
+            } catch {}
+        }
+        'Log Files' {
+            # Estimation: scan LOCALAPPDATA + TEMP for *.log older than 14d
+            # NOTE: APPDATA and ProgramData excluded — too large for preview scan.
+            #       Cleanup itself scans LOCALAPPDATA+APPDATA+ProgramData, so the
+            #       estimate underreports vs actual reclaimable log space.
+            # LOCALAPPDATA includes TEMP (Temp is a subfolder), no need for separate TEMP entry
+            $logRoots = @(
+                (Get-EnvPath 'LOCALAPPDATA')
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+            $candidates = Get-DisposableLogCandidates -Roots $logRoots -OlderThanDays 14 |
+                Sort-Object LastWriteTime |
+                Select-Object -First 200
+            foreach ($f in $candidates) { $bytes += $f.Length; $files++ }
+        }
+        'Prefetch' {
+            if ($script:SysLoc.Prefetch -and (Test-Path -LiteralPath $script:SysLoc.Prefetch -PathType Container)) {
+                $e = Get-DirectorySizeEstimate -Path $script:SysLoc.Prefetch; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true }
+            }
+        }
+        'DISM' { $status = 'ok' }  # hard to estimate size without running it
+        'Event Logs + Font Cache' {
+            try {
+                $fcPath = Join-EnvPath 'SYSTEMROOT' 'ServiceProfiles\LocalService\AppData\Local\FontCache'
+                if ($fcPath -and (Test-Path -LiteralPath $fcPath -PathType Container)) {
+                    $e = Get-DirectorySizeEstimate -Path $fcPath; $bytes += $e.Bytes; $files += $e.FileCount; if ($e.IsEstimate) { $isEstimate = $true }
+                }
+            } catch { }
+            $fnPath = Join-EnvPath 'SYSTEMROOT' 'System32\FNTCACHE.DAT'
+            if ($fnPath -and (Test-Path -LiteralPath $fnPath -PathType Leaf)) {
+                $sz = (Get-Item -LiteralPath $fnPath -EA SilentlyContinue).Length
+                $bytes += $sz; $files++
+            }
+        }
+        default { $status = 'unknown' }
+    }
+
+    return [PSCustomObject]@{ EstimatedBytes = $bytes; FileCount = $files; Status = $status; IsEstimate = $isEstimate }
+}
+
+function Estimate-AppCategory {
+    param([string[]]$Categories)
+    $bytes = [long]0; $files = 0; $isEstimate = $false
+    foreach ($cat in $Categories) {
+        $defs = Get-AppDefinitions -Category $cat
+        foreach ($app in $defs) {
+            if (-not $app.locations) { continue }
+            foreach ($loc in $app.locations) {
+                $p = Resolve-EnvTemplate -EnvVar $loc.env -SubPath $loc.path
+                if ($p -and (Test-Path -LiteralPath $p -PathType Container)) {
+                    $e = Get-DirectorySizeEstimate -Path $p; $bytes += $e.Bytes; $files += $e.FileCount
+                    if ($e.IsEstimate) { $isEstimate = $true }
+                }
+            }
+        }
+    }
+    return @{ Bytes = $bytes; Files = $files; IsEstimate = $isEstimate }
+}
+
 function Measure-AndClear {
     param([string]$Path, [switch]$EnsureDirectory, [string]$Category = 'General')
     $resolved = Resolve-FullPath $Path
     if (-not $resolved -or -not (Test-Path -LiteralPath $resolved -PathType Container)) { return $false }
     if (-not (Test-SafeCleanupTarget -Path $resolved)) { return $false }
 
-    $sizeBefore = Get-DirectorySize $resolved
+    $sizeBefore = if ($script:IsPreview) {
+        (Get-DirectorySizeEstimate -Path $resolved -MaxFiles 5000).Bytes
+    } else {
+        Get-DirectorySize $resolved
+    }
     $verb = if($script:IsPreview){'PREVIEW'}else{'CLEAR'}
     Write-CommandLog $verb $resolved
 
     if (-not $script:IsPreview) {
         Get-ChildItem -LiteralPath $resolved -Force -EA SilentlyContinue | ForEach-Object {
+            Write-FileLog -Path $_.FullName -Size $_.Length -Operation $verb -LastWriteTime $_.LastWriteTime
             Remove-Item -LiteralPath $_.FullName -Recurse -Force -EA SilentlyContinue -ErrorVariable rmErr
             if ($rmErr) { $script:Errors += [PSCustomObject]@{ Path = $_.FullName; Exception = $rmErr[0].Exception.Message; Category = 'Remove-Item'; Timestamp = Get-Date } }
         }
@@ -75,7 +270,7 @@ function Remove-FilesByPattern {
             $full = $f.FullName
             if (Test-IsExcludedPath $full) { continue }
             $sz = $f.Length
-            Write-CommandLog ($(if($script:IsPreview){'PREVIEW rm'}else{'REMOVE'})) $full
+            Write-FileLog -Path $full -Size $sz -Operation ($(if($script:IsPreview){'PREVIEW'}else{'REMOVE'})) -LastWriteTime $f.LastWriteTime
             if (-not $script:IsPreview) {
                 Remove-Item -LiteralPath $full -Force -EA SilentlyContinue
                 if (-not (Test-Path -LiteralPath $full)) {
@@ -170,7 +365,7 @@ function Clear-AppCacheFromDefinition {
 
 function Clear-AppsFromCategory {
     param(
-        [Parameter(Mandatory)][string]$CategoryName,
+        [string]$CategoryName,
         [string]$JsonCategory,
         [string]$CategoryLabel = 'App Caches',
         [string[]]$WarnOnlyNames = @()
@@ -562,7 +757,7 @@ function Find-UnusedFiles {
                         $risk = if ($unusedDays -ge 180) { 'High' } elseif ($unusedDays -ge 90) { 'Medium' } else { 'Low' }
                         $color = if ($unusedDays -ge 180) { 'Red' } elseif ($unusedDays -ge 90) { 'Yellow' } else { 'Green' }
                         Write-Log "UNUSED? $risk ($sizeStr, ${unusedDays}d stale) -> $fullPath" 'WARN'
-                        Write-Host "    [$risk] $sizeStr  ${unusedDays}d  $fullPath" -ForegroundColor $color
+                        Write-FileLog -Path $fullPath -Size $f.Length -Operation SCAN -LastWriteTime $f.LastAccessTime
                         $results.Add([PSCustomObject]@{
                             Path = $fullPath; Size = $f.Length; AgeDays = $unusedDays
                             Score = [Math]::Min(70, 20 + [int]($unusedDays / 10))
@@ -599,7 +794,7 @@ function Find-UnusedFiles {
                 $risk = if ($unusedDays -ge 180) { 'High' } elseif ($unusedDays -ge 90) { 'Medium' } else { 'Low' }
                 $color = if ($unusedDays -ge 180) { 'Red' } elseif ($unusedDays -ge 90) { 'Yellow' } else { 'Green' }
                 Write-Log "UNUSED? $risk ($sizeStr, ${unusedDays}d stale) -> $fullPath" 'WARN'
-                Write-Host "    [$risk] $sizeStr  ${unusedDays}d  $fullPath" -ForegroundColor $color
+                Write-FileLog -Path $fullPath -Size $f.Length -Operation SCAN -LastWriteTime $f.LastAccessTime
                 $results.Add([PSCustomObject]@{
                     Path = $fullPath; Size = $f.Length; AgeDays = $unusedDays
                     Score = [Math]::Min(70, 20 + [int]($unusedDays / 10))
@@ -622,10 +817,12 @@ function Find-UnusedFiles {
     Write-Log "Found $($sorted.Count) unused files ($(Format-FileSize $totalSize) total):" 'WARN'
     Write-Host ''
     Write-Host "Found $($sorted.Count) unused files ($(Format-FileSize $totalSize) total):" -ForegroundColor Yellow
-    foreach ($o in $sorted) {
+    $sortedCount = $sorted.Count
+    for ($fi = 0; $fi -lt $sortedCount; $fi++) {
+        $o = $sorted[$fi]
         $sizeStr = Format-FileSize $o.Size
         Write-Log "UNUSED $($o.RiskLevel) ($sizeStr, $($o.AgeDays)d stale) -> $($o.Path)" 'WARN'
-        Write-Host ("  [{0,-6}] {1,-5}d {2,10}  {3}" -f $o.RiskLevel, $o.AgeDays, $sizeStr, $o.Path) -ForegroundColor $o.Color
+        Write-FileLog -Path $o.Path -Size $o.Size -Operation SCAN -Index ($fi + 1) -Total $sortedCount
     }
 
     if ($InteractiveDelete -and $sorted.Count -gt 0) {
@@ -638,11 +835,10 @@ function Find-UnusedFiles {
             Write-Host ("[{0,2}] ({1,-6}) {2,-5}d {3,10}  {4}" -f ($i+1), $o.RiskLevel, $o.AgeDays, $sizeStr, $o.Path) -ForegroundColor $o.Color -NoNewline
             $resp = (Read-Host '  Delete? [y/N/a]').Trim().ToLowerInvariant()
             if ($resp -eq 'y') {
-                Write-CommandLog 'REMOVE' $o.Path
+                Write-FileLog -Path $o.Path -Size $o.Size -Operation REMOVE
                 if (-not $script:IsPreview) {
                     Remove-Item -LiteralPath $o.Path -Force -EA SilentlyContinue
                     if (-not (Test-Path -LiteralPath $o.Path)) {
-                        if (-not $script:BytesFreed) { $script:BytesFreed = [long]0 }
                         $script:BytesFreed += $o.Size
                         if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
                         if(-not $script:CategorySizes.ContainsKey('Unused')){$script:CategorySizes['Unused']=[long]0}
@@ -654,7 +850,7 @@ function Find-UnusedFiles {
                 for ($j = $i; $j -lt $sorted.Count; $j++) {
                     if ($sorted[$j].RiskLevel -eq 'High') {
                         $hj = $sorted[$j]
-                        Write-CommandLog 'REMOVE' $hj.Path
+                        Write-FileLog -Path $hj.Path -Size $hj.Size -Operation REMOVE
                         if (-not $script:IsPreview) {
                             Remove-Item -LiteralPath $hj.Path -Force -EA SilentlyContinue
                             if (-not (Test-Path -LiteralPath $hj.Path)) {
@@ -780,14 +976,14 @@ function Find-OrphanFolders {
                 # Check age and size
                 try {
                     $ageDays = [int]((Get-Date) - $dir.CreationTime).TotalDays
-                    if ($ageDays -le 30) { continue }
+                    if ($ageDays -le $UnusedDays) { continue }
                     $size = Get-DirectorySize $fullPath
                     if ($size -le 1MB) { continue }
 
                     # Use the proper risk scoring from Core
                     $risk = Get-OrphanRiskScore -Name $dir.Name -SizeBytes $size -DaysStale $ageDays -PathSuffix $root -InstalledNames $installedNames -RunningNames $runningNames
                     Write-Log "ORPHAN? $($risk.RiskLevel) $($dir.Name) ($(Format-FileSize $size), ${ageDays}d stale) -> $fullPath" 'WARN'
-                    Write-Host ("  [{0,-6}] {1,-5}d {2,10}  {3}" -f $risk.RiskLevel, $ageDays, (Format-FileSize $size), $fullPath) -ForegroundColor $risk.Color
+                    Write-FileLog -Path $fullPath -Size $size -Operation SCAN
                     $orphans.Add([PSCustomObject]@{
                         Path = $fullPath
                         Size = $size
@@ -828,10 +1024,12 @@ function Find-OrphanFolders {
     Write-Log 'These folders belong to apps that appear uninstalled and untouched 30+ days.' 'INFO'
     Write-Host ''
     Write-Host "Found $($sorted.Count) orphan folders ($highC high, $medC medium, $lowC low risk):" -ForegroundColor Yellow
-    foreach ($o in $sorted) {
+    $sortedCount = $sorted.Count
+    for ($fi = 0; $fi -lt $sortedCount; $fi++) {
+        $o = $sorted[$fi]
         $sizeStr = Format-FileSize $o.Size
         Write-Log "ORPHAN $($o.RiskLevel) $($o.Path) ($sizeStr, $($o.AgeDays)d stale)" 'WARN'
-        Write-Host ("  [{0,-6}] {1,-5}d {2,10}  {3}" -f $o.RiskLevel, $o.AgeDays, $sizeStr, $o.Path) -ForegroundColor $o.Color
+        Write-FileLog -Path $o.Path -Size $o.Size -Operation SCAN -Index ($fi + 1) -Total $sortedCount
     }
 
     # Interactive delete mode
@@ -845,11 +1043,10 @@ function Find-OrphanFolders {
             Write-Host ("[{0,2}] ({1,-6}) {2,-5}d {3,10}  {4}" -f ($i+1), $o.RiskLevel, $o.AgeDays, $sizeStr, $o.Path) -ForegroundColor $o.Color -NoNewline
             $resp = (Read-Host '  Delete? [y/N/a]').Trim().ToLowerInvariant()
             if ($resp -eq 'y') {
-                Write-CommandLog 'REMOVE' $o.Path
+                Write-FileLog -Path $o.Path -Size $o.Size -Operation REMOVE
                 if (-not $script:IsPreview) {
                     Remove-Item -LiteralPath $o.Path -Recurse -Force -EA SilentlyContinue
                     if (-not (Test-Path -LiteralPath $o.Path)) {
-                        if (-not $script:BytesFreed) { $script:BytesFreed = [long]0 }
                         $script:BytesFreed += $o.Size
                         if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
                         if(-not $script:CategorySizes.ContainsKey('Orphans')){$script:CategorySizes['Orphans']=[long]0}
@@ -861,11 +1058,10 @@ function Find-OrphanFolders {
                 for ($j = $i; $j -lt $sorted.Count; $j++) {
                     if ($sorted[$j].RiskLevel -eq 'High') {
                         $hj = $sorted[$j]
-                        Write-CommandLog 'REMOVE' $hj.Path
+                        Write-FileLog -Path $hj.Path -Size $hj.Size -Operation REMOVE
                         if (-not $script:IsPreview) {
                             Remove-Item -LiteralPath $hj.Path -Recurse -Force -EA SilentlyContinue
                             if (-not (Test-Path -LiteralPath $hj.Path)) {
-                                if (-not $script:BytesFreed) { $script:BytesFreed = [long]0 }
                                 $script:BytesFreed += $hj.Size
                                 if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
                                 if(-not $script:CategorySizes.ContainsKey('Orphans')){$script:CategorySizes['Orphans']=[long]0}
@@ -993,6 +1189,24 @@ function Invoke-ParallelCleanup {
         [hashtable]$StepCounts
     )
     $maxRunspaces = 4
+
+    # Resolve module paths for runspace import
+    $moduleDir = $PSScriptRoot
+    $isPreviewVal = if ($script:IsPreview) { '$true' } else { '$false' }
+    $verboseScanVal = if ($script:VerboseScan) { '$true' } else { '$false' }
+    $runspaceInit = @"
+`$null = Import-Module '$moduleDir\Bakunawa.Core.psm1' -Force -Scope Global -ErrorAction SilentlyContinue
+`$null = Import-Module '$moduleDir\Bakunawa.Config.psm1' -Force -Scope Global -ErrorAction SilentlyContinue
+`$null = Import-Module '$moduleDir\Bakunawa.Cleanup.psm1' -Force -Scope Global -ErrorAction SilentlyContinue
+`$null = Import-Module '$moduleDir\Bakunawa.UI.psm1' -Force -Scope Global -ErrorAction SilentlyContinue
+# Inherit script-level state from main session
+`$m = Get-Module Bakunawa.Core
+`$m.SessionState.PSVariable.Set('script:IsPreview', $isPreviewVal)
+`$m.SessionState.PSVariable.Set('script:VerboseScan', $verboseScanVal)
+`$m.SessionState.PSVariable.Set('script:RunningProcesses', (Get-RunningProcessNames))
+`$m.SessionState.PSVariable.Set('script:SysLoc', (Get-SystemLocations))
+"@
+
     $runspacePool = [runspacefactory]::CreateRunspacePool(1, $maxRunspaces)
     $runspacePool.Open()
 
@@ -1029,7 +1243,7 @@ function Invoke-ParallelCleanup {
 
         $ps = [powershell]::Create()
         $ps.RunspacePool = $runspacePool
-        [void]$ps.AddScript($taskMap[$taskName])
+        [void]$ps.AddScript($runspaceInit + "`n" + $taskMap[$taskName].ToString())
         $jobs.Add([PSCustomObject]@{
             TaskName = $taskName
             PowerShell = $ps
@@ -1037,17 +1251,22 @@ function Invoke-ParallelCleanup {
         })
     }
 
-    foreach ($job in $jobs) {
-        try {
-            $result = $job.PowerShell.EndInvoke($job.Handle)
-            $count = if ($result -and $result.Count -gt 0) { $result[-1] } else { 0 }
-            $StepCounts[$job.TaskName] = $count
-        } catch {
-            Write-Log "Parallel task $($job.TaskName) failed: $_" 'ERR'
-            $StepCounts[$job.TaskName] = 0
-        }
-        $job.PowerShell.Dispose()
+  foreach ($job in $jobs) {
+    # Poll instead of blocking EndInvoke directly so the UI ticker can advance
+    while (-not $job.Handle.IsCompleted) {
+      Update-UiTicker
+      Start-Sleep -Milliseconds 50
     }
+    try {
+      $result = $job.PowerShell.EndInvoke($job.Handle)
+      $count = if ($result -and $result.Count -gt 0) { $result[-1] } else { 0 }
+      $StepCounts[$job.TaskName] = $count
+    } catch {
+      Write-Log "Parallel task $($job.TaskName) failed: $_" 'ERR'
+      $StepCounts[$job.TaskName] = 0
+    }
+    $job.PowerShell.Dispose()
+  }
 
     $runspacePool.Close()
     $runspacePool.Dispose()
@@ -1085,6 +1304,7 @@ function Invoke-CleanupRun {
     Write-Log "Mode: $Mode" 'INFO'
     Write-Log "Started: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))" 'INFO'
     Write-Log "Initial free: $($startSpace.MB) MB ($($startSpace.GB) GB)" 'INFO'
+    Show-CleanupPotential -Mode $Mode
 
     # Process tasks with step tracking
     $stepCounts = @{}
@@ -1097,7 +1317,7 @@ function Invoke-CleanupRun {
 
     # Run parallel tasks together
     if ($parallelTasks.Count -gt 0) {
-        Start-Step "Cache Cleanup (${($parallelTasks.Count)} categories)"
+        Start-Step "Cache Cleanup ($($parallelTasks.Count) categories)"
         Invoke-ParallelCleanup -Tasks $parallelTasks -StepCounts $stepCounts
         $parallelSummary = ($parallelTasks | ForEach-Object { "$($_.Name): $($stepCounts[$_.Name])" }) -join ', '
         Finish-Step $parallelSummary
@@ -1153,4 +1373,4 @@ function Invoke-CleanupRun {
     Show-RunSummary -Mode $Mode -Duration $sw.Elapsed.TotalSeconds -StartSpace $startSpace -EndSpace $endSpace -StepCounts $stepCounts
 }
 
-Export-ModuleMember -Function Write-CommandLog, Get-CleanupTasks, Measure-AndClear, Remove-FilesByPattern, Clear-AppCacheFromDefinition, Clear-AppsFromCategory, Clear-SystemCaches, Clear-ChromiumCaches, Clear-FirefoxCaches, Clear-AppCaches, Clear-DevCaches, Clear-GameCaches, Clear-CloudSyncCaches, Clear-CreativeAppCaches, Clear-ProductivityCaches, Clear-DevOpsCaches, Clear-GpuAndShellCaches, Clear-RecycleBinSafe, Clear-SystemLogFiles, Remove-EmptyDirectories, Remove-StaleJunkFolders, Find-UnusedFiles, Find-OrphanFolders, Invoke-ComponentCleanup, Clear-EventLogs, Clear-Prefetch, Clear-FontCache, Invoke-ParallelCleanup, Invoke-CleanupRun
+Export-ModuleMember -Function Write-CommandLog, Get-CleanupTasks, Get-CleanupPotential, Measure-AndClear, Remove-FilesByPattern, Clear-AppCacheFromDefinition, Clear-AppsFromCategory, Clear-SystemCaches, Clear-ChromiumCaches, Clear-FirefoxCaches, Clear-AppCaches, Clear-DevCaches, Clear-GameCaches, Clear-CloudSyncCaches, Clear-CreativeAppCaches, Clear-ProductivityCaches, Clear-DevOpsCaches, Clear-GpuAndShellCaches, Clear-RecycleBinSafe, Clear-SystemLogFiles, Remove-EmptyDirectories, Remove-StaleJunkFolders, Find-UnusedFiles, Find-OrphanFolders, Invoke-ComponentCleanup, Clear-EventLogs, Clear-Prefetch, Clear-FontCache, Invoke-ParallelCleanup, Invoke-CleanupRun

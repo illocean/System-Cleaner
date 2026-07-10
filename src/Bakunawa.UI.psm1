@@ -1,10 +1,11 @@
 ﻿# Bakunawa.UI.psm1 — Terminal rendering engine
 
-if (-not $script:SpinnerFrames) { $script:SpinnerFrames = @('|','/','-','\') }
-if (-not $script:SpinnerIndex) { $script:SpinnerIndex = 0 }
-
 function Test-VT100Supported {
     try { return $Host.UI.SupportsVirtualTerminal } catch { return $false }
+}
+
+function Test-IsWindowsTerminal {
+    return [bool]$env:WT_SESSION
 }
 
 function Get-ModeColor {
@@ -18,21 +19,79 @@ function Get-ModeColor {
 }
 
 function Write-Log {
-    param([string]$Message, [ValidateSet('INFO','OK','WARN','ERR','CMD','STEP','SIZE')][string]$Level='INFO')
+    param([string]$Message, [ValidateSet('INFO','OK','WARN','ERR','CMD','STEP','SIZE','SCAN')][string]$Level='INFO')
     $ts = Get-Date -Format 'HH:mm:ss'
     $prefix, $color = switch($Level) {
         'OK'   { ' [+] ', 'Green' }
         'WARN' { ' [!] ', 'Yellow' }
         'ERR'  { ' [X] ', 'Red' }
         'CMD'  { '  >  ', 'DarkGray' }
-        'STEP' { ' >> ', 'Cyan' }
-        'SIZE' { ' vv ', 'Magenta' }
-        default{ ' [i] ', 'Gray' }
+    'STEP' { ' >> ', 'Cyan' }
+    'SIZE' { ' vv ', 'Magenta' }
+    'SCAN' {
+    if (-not $script:VerboseScan) { break }
+    ' ┊ [SCAN]', 'DarkGray'
     }
+    default{ ' [i] ', 'Gray' }
+  }
+  if ($Level -ne 'SCAN' -or $script:VerboseScan) {
     Write-Host "[$ts]$prefix $Message" -ForegroundColor $color
+  }
     if ($script:LogFilePath) {
-        $line = "[$ts][$Level] $Message"
-        try { Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8 -EA SilentlyContinue } catch {}
+    $line = "[$ts][$Level] $Message"
+    try { Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8 -ErrorAction Stop }
+    catch { Write-Warning "Write-Log file write failed: $_" }
+}
+}
+
+function Write-FileLog {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [long]$Size = 0,
+        [string]$Operation = 'SCAN',
+        [switch]$IsPreview,
+        [datetime]$LastWriteTime = [datetime]::MinValue,
+        [int]$Index = 0,
+        [int]$Total = 0
+    )
+    # Safety verdict: excluded path → BLOCKED, modified <7d ago → CAUTION, else → SAFE
+    $isExcluded = Test-IsExcludedPath $Path
+    if ($isExcluded) {
+        $verdict = 'BLOCKED'; $color = 'Red'; $icon = '✗'
+    } elseif ($LastWriteTime -ne [datetime]::MinValue -and ((Get-Date) - $LastWriteTime).TotalHours -lt 168) {
+        $verdict = 'CAUTION'; $color = 'Yellow'; $icon = '⚠'
+    } else {
+        $verdict = 'SAFE'; $color = 'Green'; $icon = '✓'
+    }
+
+    $ts = Get-Date -Format 'HH:mm:ss'
+    $op = $Operation.PadRight(10)
+
+    # Counter string
+    $counter = ''
+    if ($Total -gt 0) { $counter = "[$Index/$Total] " }
+
+    # Throttle: if total > 50, only show 1 in every N (keep visible output ~50 lines)
+    $showLine = $true
+    if ($Total -gt 50) {
+        $step = [Math]::Ceiling($Total / 50)
+        $showLine = ($Index -eq 1) -or ($Index -eq $Total) -or ($Index % $step -eq 0)
+    }
+
+    if ($showLine) {
+        $verdictStr = $verdict.PadRight(7)
+        $cw = Get-ConsoleWidth
+        $maxPathLen = [Math]::Max(20, $cw - 38 - $counter.Length)
+        $disp = if ($Path.Length -gt $maxPathLen) { '...' + $Path.Substring($Path.Length - $maxPathLen + 3) } else { $Path }
+
+        Write-Host "[$ts] $icon $verdictStr " -ForegroundColor $color -NoNewline
+        Write-Host "$op " -ForegroundColor DarkGray -NoNewline
+        if ($counter) { Write-Host "$counter" -ForegroundColor DarkCyan -NoNewline }
+        Write-Host $disp -ForegroundColor $color
+    } elseif ($Index -eq $Total -or ($Total -gt 50 -and $Index % [Math]::Max(1, [Math]::Floor($Total/10)) -eq 0)) {
+        # Periodic progress pulse for large sets
+        $pct = [Math]::Round($Index / $Total * 100)
+        Write-Host "  ... $pct% done ($Index/$Total)" -ForegroundColor DarkGray
     }
 }
 
@@ -59,13 +118,18 @@ function Write-Panel {
     $pw = [Math]::Min($aw,[Math]::Max($MinWidth,$mxl+4))
     $pw = [Math]::Min($pw,$MaxWidth); $pw = [Math]::Min($pw,$cw)
     $iw = [Math]::Max(1,$pw-4); $pad = [Math]::Max(0,[int](($cw-$pw)/2))
-    $lp = ' '*$pad; $bdr = '+'+('-'*($pw-2))+'+'
-    Write-Host ($lp+$bdr) -ForegroundColor $BorderColor
+    $lp = ' '*$pad
+    $useBoxDrawing = Test-IsWindowsTerminal
+    $topBdr = if ($useBoxDrawing) { '┌'+('─'*($pw-2))+'┐' } else { '+'+('-'*($pw-2))+'+' }
+    $sideL = if ($useBoxDrawing) { '│ ' } else { '| ' }
+    $sideR = if ($useBoxDrawing) { ' │' } else { ' |' }
+    $botBdr = if ($useBoxDrawing) { '└'+('─'*($pw-2))+'┘' } else { '+'+('-'*($pw-2))+'+' }
+    Write-Host ($lp+$topBdr) -ForegroundColor $BorderColor
     foreach($l in $Lines){
         $rl = (Get-DisplayText $l $iw).PadRight($iw)
-        Write-Host ($lp+'| '+$rl+' |') -ForegroundColor $TextColor
+        Write-Host ($lp+$sideL+$rl+$sideR) -ForegroundColor $TextColor
     }
-    Write-Host ($lp+$bdr) -ForegroundColor $BorderColor
+    Write-Host ($lp+$botBdr) -ForegroundColor $BorderColor
 }
 
 function Show-AppLogo {
@@ -122,7 +186,8 @@ function Update-UiTicker {
     $bar = New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 10
     $status = "[${frame}] $bar $op"
     Write-Progress -Activity 'Bakunawa devouring digital waste...' -Status $status -PercentComplete $script:ActiveStepPct -Id 1
-    $Host.UI.RawUI.WindowTitle = "Bakunawa v3 $frame $($script:StepIndex)/$($script:TotalSteps) $($script:ActiveStepName)"
+    $freedStr = if ($script:BytesFreed -gt 0) { " | $(Format-FileSize $script:BytesFreed) freed" } else { '' }
+    $Host.UI.RawUI.WindowTitle = "Bakunawa v3 $frame $($script:StepIndex)/$($script:TotalSteps) $($script:ActiveStepName)$freedStr"
 }
 
 function Show-Header {
@@ -173,7 +238,6 @@ function Show-Menu {
         [void]$menuLines.Add('[3] Preview     show the cleanup plan only')
         [void]$menuLines.Add('[4] Scan        orphan folders + unused files across C:')
         [void]$menuLines.Add('[5] Health      system health dashboard with details')
-        [void]$menuLines.Add('[6] Disk Usage  analyze largest space consumers on system drive')
         [void]$menuLines.Add('')
         [void]$menuLines.Add('Busy browsers and selected apps are skipped for safety.')
         [void]$menuLines.Add('[Q] Quit')
@@ -187,9 +251,9 @@ function Show-Menu {
         Write-Host ''
         $choice = (Read-Host 'Selection').Trim().ToUpperInvariant()
         switch ($choice) {
-            '1' { Invoke-CleanupRun 'Standard';   Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
+            '1' { Invoke-CleanupRun 'Standard';   Write-Host ''; Write-Host 'Review the results above.' -ForegroundColor Yellow; Write-Host ''; [void](Read-Host 'Press Enter when ready to return to the menu') }
+            '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; Write-Host 'Review the results above.' -ForegroundColor Yellow; Write-Host ''; [void](Read-Host 'Press Enter when ready to return to the menu') }
+            '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; Write-Host 'Review the results above.' -ForegroundColor Yellow; Write-Host ''; [void](Read-Host 'Press Enter when ready to return to the menu') }
             '4' {
                 try {
                     Show-Header; $script:IsPreview=$false
@@ -197,38 +261,82 @@ function Show-Menu {
                     $o = Find-OrphanFolders -InteractiveDelete
                     $u = Find-UnusedFiles -InteractiveDelete
                     Finish-Step "Scan complete: $o orphans, $u unused files"
+                    Write-Host ''
+                    Write-Panel @(
+                        '=== Scan Results ==='
+                        ''
+                        " Orphans found : $o"
+                        " Unused files  : $u"
+                    ) -BorderColor 'Green' -TextColor 'White' -MinWidth 48 -MaxWidth 72
                 } catch {
                     Write-Host "Scan failed: $_" -ForegroundColor Red
                     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
                 }
-                Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]')
+                Write-Host ''
+                Write-Host 'Review the results above.' -ForegroundColor Yellow
+                Write-Host ''
+                [void](Read-Host 'Press Enter when ready to return to the menu')
             }
-            '5' { Show-HealthDetail; [void](Read-Host '[Press Enter to return to Menu]') }
-            '6' {
-                try {
-                    Show-Header
-                    Write-Host ''
-                    Write-CenteredLine '=== Disk Usage Analyzer ===' 'Cyan'
-                    Write-Host ''
-                    $dirs = Get-LargestDirectories
-                    if ($dirs.Count -eq 0) {
-                        Write-Host 'No directories found above 10 MB threshold.' -ForegroundColor Yellow
-                    } else {
-                        Write-Host ('{0,-10} {1,-60} {2}' -f 'Size', 'Path', 'Last Modified') -ForegroundColor Cyan
-                        Write-Host ('{0,-10} {1,-60} {2}' -f ('-'*8), ('-'*58), ('-'*19))
-                        foreach ($d in $dirs) {
-                            Write-Host ('{0,-10} {1,-60} {2}' -f $d.SizeText, $d.Path, $d.LastWrite.ToString('yyyy-MM-dd'))
-                        }
-                    }
-                } catch {
-                    Write-Host "Disk Usage scan failed: $_" -ForegroundColor Red
-                }
-                Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]')
-            }
+            '5' { Show-HealthDetail; Write-Host ''; Write-Host 'Review the results above.' -ForegroundColor Yellow; Write-Host ''; [void](Read-Host 'Press Enter when ready to return to the menu') }
             'Q' { return }
             default { Write-Host 'Invalid.' -ForegroundColor Yellow; Start-Sleep -Milliseconds 500 }
         }
     }
+}
+
+function Show-CleanupPotential {
+    param([ValidateSet('Standard','Aggressive','Preview')][string]$Mode = 'Standard')
+    $effectiveMode = if ($Mode -eq 'Preview') { 'Standard' } else { $Mode }
+    $items = @(Get-CleanupPotential -Mode $effectiveMode)
+    if ($items.Count -eq 0) { return }
+    Write-SectionHeader 'Estimated Cleanup Potential'
+    $maxByte = [long]0; $totalBytes = [long]0; $totalFiles = 0; $unknownCount = 0
+    foreach ($item in $items) {
+        if ($item.EstimatedBytes -gt $maxByte) { $maxByte = $item.EstimatedBytes }
+        $totalBytes += $item.EstimatedBytes
+        $totalFiles += $item.FileCount
+        if ($item.Status -eq 'unknown') { $unknownCount++ }
+    }
+    $useVT100 = Test-VT100Supported
+    $barFillChar = if ($useVT100) { '█' } else { '#' }
+    $barEmptyChar = if ($useVT100) { '░' } else { '-' }
+    $barWidth = 20
+    foreach ($item in $items) {
+        if ($item.Status -eq 'unknown') {
+            $sizeStr = '    n/a  '
+            $fileStr = '   n/a'
+        } elseif ($item.EstimatedBytes -gt 0) {
+            $sizeStr = Format-FileSize $item.EstimatedBytes
+            if ($item.IsEstimate) { $sizeStr = '*' + $sizeStr }  # prepend * for partial estimates
+            $fileStr = '{0,5}' -f $item.FileCount
+        } else {
+            $sizeStr = '   --   '
+            $fileStr = '   --'
+        }
+        $color = switch ($item.Status) {
+            'ok'      { 'Green' }
+            'skipped' { 'DarkGray' }
+            default   { 'DarkYellow' }
+        }
+        $statusStr = ('{0,-8}' -f $item.Status)
+        # Visual size bar proportional to max (min 1 block for non-zero)
+        $barLen = if ($maxByte -gt 0 -and $item.EstimatedBytes -gt 0) { [math]::Min($barWidth, [math]::Max(1, [int]($item.EstimatedBytes * $barWidth / $maxByte))) } else { 0 }
+        $barFill = if ($barLen -gt 0) { $barFillChar * $barLen } else { '' }
+        $barEmpty = $barEmptyChar * [math]::Max(0, $barWidth - $barLen)
+        $bar = "$barFill$barEmpty"
+        Write-Host ("  {0,-25} {1,10} {2,6}  {3} {4}" -f $item.Target, $sizeStr, $fileStr, $statusStr, $bar) -ForegroundColor $color
+    }
+    $sepWidth = 53 + $barWidth  # fixed content cols (name+size+files+status+gaps) plus bar
+    Write-Host ('  ' + ('─' * $sepWidth)) -ForegroundColor DarkGray
+    $totalStr = Format-FileSize $totalBytes
+    if (($items | Where-Object IsEstimate).Count -gt 0) {
+        $totalStr = '*' + $totalStr
+    }
+    Write-Host ("  {0,-25} {1,10} {2,6}" -f 'Total', $totalStr, $totalFiles) -ForegroundColor Cyan
+    if ($unknownCount -gt 0) {
+        Write-Host ("  ({0} items pending estimation — run cleanup to measure actual space)" -f $unknownCount) -ForegroundColor DarkGray
+    }
+    Write-Host '  * = partial estimate (scanned first 1000 files per directory)'
 }
 
 function Show-HealthDetail {
@@ -323,4 +431,4 @@ function Show-RunSummary {
     elseif ($script:IsAggressive) { Write-Log 'Aggressive mode completed with extras.' 'WARN' }
 }
 
-Export-ModuleMember -Function Test-VT100Supported, Get-ModeColor, Write-Log, Write-CenteredLine, Write-SectionHeader, Write-Panel, Show-AppLogo, Start-Step, Finish-Step, Update-UiTicker, Show-Header, Show-Menu, Show-HealthDetail, Show-RunSummary
+Export-ModuleMember -Function Test-VT100Supported, Test-IsWindowsTerminal, Get-ModeColor, Write-Log, Write-FileLog, Write-CenteredLine, Write-SectionHeader, Write-Panel, Show-AppLogo, Start-Step, Finish-Step, Update-UiTicker, Show-Header, Show-Menu, Show-CleanupPotential, Show-HealthDetail, Show-RunSummary

@@ -1,10 +1,10 @@
-# Bakunawa — Devour Your Digital Waste
+# Bakunawa
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-A modern, modular Windows system cleanup utility named after the Philippine moon-eating serpent. Safely removes temporary files, browser caches, app caches, developer tool caches, GPU caches, orphan folders, and more.
+A modular Windows system cleanup utility. Safely removes temporary files, browser caches, application caches, developer tool caches, GPU caches, orphan folders, and similar digital artifacts.
 
 ---
 
@@ -12,15 +12,16 @@ A modern, modular Windows system cleanup utility named after the Philippine moon
 
 - **5 cleanup modes:** Menu (interactive), Standard, Aggressive, Preview (dry-run), Orphan Scan
 - **30+ app cache targets** across browsers, messaging apps, dev tools, and system caches
-- **Config-driven app definitions** — add new apps via JSON, no PowerShell changes needed
-- **VT100-rich terminal UI** with graceful ASCII fallback for legacy consoles
-- **Safety-first:** excluded paths (Downloads, Documents, Desktop, etc.), running-process detection, approved-root validation
+- **Config-driven app definitions** -- add new apps via JSON, no PowerShell changes required
+- **VT100 terminal UI** with graceful ASCII fallback for legacy consoles
+- **Per-file scrolling log** shows every file processed during scan and delete phases with safety classification (SAFE, CAUTION, BLOCKED) and running counter
+- **Safety-first design:** excluded paths (Downloads, Documents, Desktop, etc.), running-process detection, approved-root validation, per-file safety verdict
 - **Health dashboard:** disk pressure, temp accumulation, browser cache age, orphan risk
-- **Orphan detection** with risk scoring (staleness + size + install signal + path trust)
-- **Structured error pipeline** — no global `$ErrorActionPreference = 'SilentlyContinue'`
+- **Orphan detection** with risk scoring (staleness, size, install signal, path trust)
+- **Structured error pipeline** -- no global `$ErrorActionPreference = 'SilentlyContinue'`
 - **Parallel execution** for independent cleanup tasks
 - **Optional config file** (`Bakunawa.json`) for persistent exclusions and preferences
-- **Zero external dependencies** — pure PowerShell 5.1+ with C# accelerator for fast directory sizing
+- **Zero external dependencies** -- pure PowerShell 5.1+ with C# accelerator for fast directory sizing
 
 ---
 
@@ -29,10 +30,10 @@ A modern, modular Windows system cleanup utility named after the Philippine moon
 ```
 Bakunawa.ps1              → Entry point (thin dispatcher / Controller)
 ├── src/                   → Module source files (MVC separation)
-│   ├── Bakunawa.Core.psm1    → Model: engine, safety, sizing, health, orphan scoring  (30 functions)
+│   ├── Bakunawa.Core.psm1    → Model: engine, safety, sizing, health, orphan scoring  (31 functions)
 │   ├── Bakunawa.Config.psm1  → Model: config I/O, JSON app definitions, user config   (5 functions)
-│   ├── Bakunawa.Cleanup.psm1 → Controller: task registry, execution, parallel          (19 functions)
-│   └── Bakunawa.UI.psm1      → View: VT100 rendering, menus, progress, fallback        (14 functions)
+│   ├── Bakunawa.Cleanup.psm1 → Controller: task registry, execution, parallel          (33 functions)
+│   └── Bakunawa.UI.psm1      → View: VT100 rendering, menus, progress, per-file log   (17 functions)
 ├── app-definitions/      → JSON files defining app cache paths
 │   ├── browsers.json
 │   ├── messaging.json
@@ -45,11 +46,11 @@ Bakunawa.ps1              → Entry point (thin dispatcher / Controller)
 
 | Module | MVC Role | Responsibility |
 |--------|----------|---------------|
-| `Bakunawa.ps1` | **Controller** | Entry point — auto-loads modules, handles elevation, dispatches to mode |
+| `Bakunawa.ps1` | **Controller** | Entry point -- auto-loads modules, handles elevation, dispatches to mode |
 | `src/Bakunawa.Core.psm1` | **Model** | Protected path resolution, approved-root validation, directory sizing (C#), health analysis, orphan risk scoring |
 | `src/Bakunawa.Config.psm1` | **Model** | Loads JSON app definitions, reads/writes user config, validates structure |
 | `src/Bakunawa.Cleanup.psm1` | **Controller** | Task registry, step execution, parallel runspaces, error collection |
-| `src/Bakunawa.UI.psm1` | **View** | VT100 rendering (with ASCII fallback), interactive menu, progress bars, health dashboard |
+| `src/Bakunawa.UI.psm1` | **View** | VT100 rendering (with ASCII fallback), interactive menu, progress bars, per-file scrolling log with safety verdict |
 
 ---
 
@@ -179,6 +180,7 @@ Create or edit a JSON file in `app-definitions/`:
 - **Protected paths:** Downloads, Documents, Desktop, Pictures, Videos, Music, OneDrive, Windows packages
 - **Running process detection:** Skips browser/app cache cleanup if the app is running
 - **Approved-root validation:** Only cleans within known safe directories
+- **Per-file safety verdict:** Each file is classified as SAFE, CAUTION (modified within 7 days), or BLOCKED (excluded path) during processing
 - **Preview mode:** See exactly what would be deleted before committing
 - **Structured error handling:** Per-operation try/catch, errors collected for review
 - **Extra exclusion support:** Add custom paths via `-ExtraExcludePath` or config file
@@ -207,13 +209,13 @@ Invoke-Pester -Path 'tests/Bakunawa.Core.Tests.ps1'
 
 ### Project Structure
 
-- `Bakunawa.ps1` — Entry point (Controller)
-- `src/Bakunawa.Core.psm1` — Model: core engine (30 functions)
-- `src/Bakunawa.Config.psm1` — Model: config I/O (5 functions)
-- `src/Bakunawa.Cleanup.psm1` — Controller: cleanup execution (19 functions)
-- `src/Bakunawa.UI.psm1` — View: terminal rendering (14 functions)
-- `app-definitions/` — 4 JSON files
-- `tests/` — 59 Pester tests
+- `Bakunawa.ps1` -- Entry point (Controller)
+- `src/Bakunawa.Core.psm1` -- Model: core engine (31 functions)
+- `src/Bakunawa.Config.psm1` -- Model: config I/O (5 functions)
+- `src/Bakunawa.Cleanup.psm1` -- Controller: cleanup execution (33 functions)
+- `src/Bakunawa.UI.psm1` -- View: terminal rendering (17 functions)
+- `app-definitions/` -- JSON files
+- `tests/` -- Pester tests
 
 ---
 

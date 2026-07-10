@@ -14,7 +14,7 @@ function Resolve-EnvTemplate {
     try {
         $full = [System.IO.Path]::GetFullPath((Join-Path $base $SubPath))
         return $full
-    } catch { return $null }
+    } catch { Write-Verbose "Resolve-EnvTemplate: $_"; return $null }
 }
 
 function Get-AppDefinitions {
@@ -33,17 +33,10 @@ function Get-AppDefinitions {
         $raw = Get-Content -LiteralPath $file -Raw -Encoding UTF8
         if (-not $raw) { return @() }
         $defs = $null
-        if ([bool]('System.Text.Json.JsonSerializer' -as [type])) {
-            $defs = [System.Text.Json.JsonSerializer]::Deserialize($raw, [System.Collections.Generic.List[System.Object]])
-        } else {
-            $defs = ConvertFrom-Json $raw -EA Stop
-        }
+        $defs = ConvertFrom-Json $raw -EA Stop
         if (-not $defs) { return @() }
         return @($defs)
-    } catch {
-        Write-Verbose "Get-AppDefinitions($Category): $_"
-        return @()
-    }
+    } catch { Write-Verbose "Get-AppDefinitions($Category): $_"; return @() }
 }
 
 function Get-AllAppDefinitions {

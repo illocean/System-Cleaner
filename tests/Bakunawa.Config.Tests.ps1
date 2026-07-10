@@ -56,4 +56,8 @@ Describe 'Bakunawa.Config' {
         $nullNames = $defs | Where-Object { $null -eq $_.process }
         $nullNames.Count | Should -BeGreaterThan 0
     }
+    It 'Resolve-EnvTemplate catch logs via Write-Verbose instead of silent return' {
+        $cfgContent = Get-Content -Path (Join-Path $PSScriptRoot '..\src\Bakunawa.Config.psm1') -Raw
+        ($cfgContent -match 'Write-Verbose.*Resolve-EnvTemplate') | Should -Be $true
+    }
 }

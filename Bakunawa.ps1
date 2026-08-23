@@ -174,14 +174,10 @@ if (-not $SkipBootstrap) {
     if ($VerboseScan) { $script:VerboseScan = $true }
     if ($ExtraExcludePath) { $script:ExtraExcludePaths = $ExtraExcludePath }
     
-    # Validate and set log file path
+    # Validate and set log file path (explicit single-writer contract via UI module)
     if ($LogFile) {
         try {
-            $script:LogFilePath = [System.IO.Path]::GetFullPath($LogFile)
-            $logDir = Split-Path $script:LogFilePath -Parent
-            if (-not (Test-Path -LiteralPath $logDir -PathType Container)) {
-                New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-            }
+            $null = Initialize-UiLogging -Path $LogFile
         } catch {
             Write-Host "Invalid log file path: $($_.Exception.Message)" -ForegroundColor Red
             exit 1

@@ -1,11 +1,7 @@
 ﻿# Bakunawa.UI.psm1 -- Terminal rendering engine
 
-if (-not $script:SpinnerFrames) { $script:SpinnerFrames = @('|','/','-','\') }
-if (-not $script:SpinnerIndex) { $script:SpinnerIndex = 0 }
-if ($null -eq $script:SerpFrame) { $script:SerpFrame = 0 }
 if ($null -eq $script:TotalSteps) { $script:TotalSteps = 0 }
 if ($null -eq $script:StepIndex)  { $script:StepIndex = 0 }
-if ($null -eq $script:StripActive) { $script:StripActive = $false }
 
 # NOTE: $script:LogFilePath is owned by THIS module. Set it only via Initialize-UiLogging -
 # assigning it from outside (e.g. Bakunawa.ps1 script scope) silently does nothing.
@@ -151,17 +147,10 @@ function Show-AppLogo {
     }
 }
 
-# ── SERPENT DEVOURER ANIMATION ENGINE ──
-# Serpent/moon themed animation for scanning & cleaning. VT256-capable terminals get
-# serpent bars, moon-phase markers, flame (aggressive) and a live status strip. Plain
-# consoles fall back to compact ASCII so nothing is ever unreadable.
-
-# Fallback glyph sets (non-VT or broken VT). Status vars persist across steps.
-if (-not $script:MoonFrames)  { $script:MoonFrames  = @('o','O','@','*') }
-if (-not $script:SerpFrames)  { $script:SerpFrames  = @('=','≡','≣','≈') }
-if (-not $script:FlameFrames) { $script:FlameFrames = @('*','+','x') }
-if (-not $script:SerpentPath) { $script:SerpentPath = $null }
-if (-not $script:StripActive) { $script:StripActive  = $false }
+# ── GLYPHS ──
+# Monochrome glyph helpers for headers and status lines. The serpent animation
+# engine was removed with the minimal-UI redesign; these survive because live
+# rendering still uses them.
 
 function Get-ThemedGlyph {
     [CmdletBinding()]
@@ -216,97 +205,6 @@ function Get-MoonPhaseGlyph {
     return $ascii[$idx]
 }
 
-function New-SerpentBar {
-    [CmdletBinding()]
-    param()
-    # An animated serpent that swallows segment-by-segment. Body fills left->right;
-    # head + a flickering tail give motion, and aggressive mode breathes flame.
-    param(
-        [int]$Value,
-        [int]$Total,
-        [int]$Width = 18,
-        [switch]$Aggressive
-    )
-    if ($Width -lt 4) { $Width = 4 }
-    $safeValue = [Math]::Max(0, $Value)
-    $safeTotal = [Math]::Max(0, $Total)
-    if ($safeTotal -le 0) { $safeTotal = 1 }
-    if ($safeValue -gt $safeTotal) { $safeValue = $safeTotal }
-    $pct = [int][Math]::Round(($safeValue / [double]$safeTotal) * 100)
-    $filled = [Math]::Min($Width, [int][Math]::Round(($safeValue / [double]$safeTotal) * $Width))
-    $empty  = [Math]::Max(0, $Width - $filled)
-
-    if (Test-VT100Supported) {
-        $body  = [char]0x2591   # ░
-        $bodyF = [char]0x2593   # ▓ (filled body)
-        $head  = [char]0x2588   # █ (serpent head)
-        $seg   = $script:SerpFrames[$script:SerpFrame % $script:SerpFrames.Count]
-        # head flickers between solid head and segment char for a swallowing feel
-        $headCh = if (($script:SerpFrame % 2) -eq 0) { $head } else { $seg }
-        $headIdx = [Math]::Max(0, $filled - 1)
-        $headIdx = [Math]::Min($Width - 1, $headIdx)
-        $cells = [char[]]::new($Width)
-        for ($i = 0; $i -lt $Width; $i++) { $cells[$i] = if ($i -lt $filled) { $bodyF } else { $body } }
-        if ($filled -gt 0 -and $filled -le $Width) { $cells[$headIdx] = $headCh }
-        $barStr = -join $cells
-        if ($Aggressive -and $pct -ge 60) {
-            $fl = $script:FlameFrames[$script:SerpFrame % $script:FlameFrames.Count]
-            $barStr = $fl + ' ' + $barStr
-        } else {
-            $barStr = ' ' + $barStr
-        }
-        return ('{0} {1}%' -f $barStr, $pct)
-    }
-    # ASCII fallback: plain block bar with the step counter
-    $segC = $script:SerpFrames[$script:SerpFrame % $script:SerpFrames.Count]
-    $p1 = [Math]::Min($Width - 2, $filled)
-    $p1 = [Math]::Max(0, $p1)
-    return ('[{0}{1}{2}] {3}%' -f ('#' * $p1), $segC, ('.' * [Math]::Max(0, $Width - 1 - $p1)), $pct)
-}
-
-function Start-SerpentStrip {
-    [CmdletBinding()]
-    param()
-    # Opens a dedicated (single-line, erased) live status strip. Only when VT is available;
-    # otherwise callers fall back to New-SerpentBar/Write-Progress output.
-    if (-not (Test-VT100Supported)) { return }
-    $script:StripActive = $true
-    $script:StripStarted = $true
-    Write-Host ''
-}
-
-function Update-SerpentStrip {
-    [CmdletBinding()]
-    param([string]$Message, [int]$Value, [int]$Total)
-    if (-not $script:StripActive -or -not (Test-VT100Supported)) { return }
-    # Self-driving frame counter: serpent + flame keep animating on every call,
-    # independent of the fragile cross-scope TotalSteps/SpinnerIndex scaffolding.
-    $script:SerpFrame++
-    $erase = [string][char]0x1B + '[2K'
-    $curUp = [string][char]0x1B + '[1A'
-    # move up, erase, redraw the single strip line
-    Write-Host "$curUp$erase" -NoNewline
-    $bar = New-SerpentBar -Value $Value -Total $Total -Width 14 -Aggressive:$script:IsAggressive
-    $glyph = Get-ThemedGlyph 'Serp'
-    Write-Host (" {0} {1}  {2}" -f $glyph, $bar, $Message) -ForegroundColor Darkred
-}
-
-function Close-SerpentStrip {
-    [CmdletBinding()]
-    param([string]$FinalMessage)
-    if (-not $script:StripActive) { return }
-    $script:StripActive = $false
-    if (Test-VT100Supported) {
-        $erase = [string][char]0x1B + '[2K'
-        $curUp = [string][char]0x1B + '[1A'
-        Write-Host "$curUp$erase" -NoNewline
-        Write-Host (" {0} {1}" -f (Get-ThemedGlyph 'Ok'), $FinalMessage) -ForegroundColor Green
-    } else {
-        Write-Host $FinalMessage -ForegroundColor Green
-    }
-    $script:StripStarted = $false
-}
-
 function Start-Step {
     [CmdletBinding()]
     param([string]$Name, [int]$Total = 0)
@@ -331,15 +229,6 @@ function Finish-Step {
         Write-Progress -Activity 'Bakunawa' -Completed -Id 1
         $Host.UI.RawUI.WindowTitle = 'Bakunawa - done'
     }
-}
-
-function Update-UiTicker {
-    [CmdletBinding()]
-    param([string]$CurrentOperation)
-    # Minimal UI: progress lives in the [NN/NN] headers and per-task summaries.
-    # Keep only the window title in sync.
-    if (-not $script:ActiveStepName) { return }
-    $Host.UI.RawUI.WindowTitle = "Bakunawa $($script:StepIndex)/$($script:TotalSteps) $($script:ActiveStepName)"
 }
 
 function Show-Header {
@@ -370,16 +259,6 @@ function Show-Header {
         "Run bar    : $runBar"
     ) -BorderColor $modeColor -TextColor 'White' -MinWidth 62 -MaxWidth 92
     Write-Host ''
-}
-
-function Test-IsWindowsTerminal {
-    [CmdletBinding()]
-    param()
-    try {
-        if ($env:WT_SESSION) { return $true }
-        if ($env:TERM_PROGRAM -eq 'vscode') { return $false }
-        return $false
-    } catch { return $false }
 }
 
 function Show-CleanupPotential {
@@ -575,23 +454,6 @@ function Show-QuarantineSummary {
     Write-Host '    Get-QuarantineInventory              # Full list' -ForegroundColor DarkGray
 }
 
-function Show-LiveScanProgress {
-    [CmdletBinding()]
-    param(
-        [string]$CurrentPath,
-        [long]$RunningTotalBytes,
-        [int]$FilesScanned
-    )
-    $totalStr = Format-FileSize $RunningTotalBytes
-    $msg = "Scanned: {0} files | Reclaimable: {1} | {2}" -f $FilesScanned, $totalStr, (Get-DisplayText $CurrentPath 46)
-    if ($script:StripActive -and (Test-VT100Supported)) {
-        # Reuse the live serpent strip instead of spamming a fresh line per file.
-        Update-SerpentStrip -Message $msg -Value $FilesScanned -Total ($FilesScanned + 10)
-        return
-    }
-     $bar = New-SerpentBar -Value $FilesScanned -Total ($FilesScanned + 10) -Width 18 -Aggressive:$script:IsAggressive
-     Write-Host ("  {0}  {1}" -f $bar, $msg) -ForegroundColor DarkGray
-}
 
 function Show-HealthDetail {
     [CmdletBinding()]
@@ -620,14 +482,12 @@ Export-ModuleMember -Function @(
     'Get-MoonPhaseGlyph',
     'Start-Step',
     'Finish-Step',
-    'Update-UiTicker',
     'Show-Header',
     'Show-CleanupPotential',
     'Show-Menu',
     'Show-RunSummary',
     'Show-OrphanScanResults',
     'Show-QuarantineSummary',
-    'Show-LiveScanProgress',
     'Show-HealthDetail',
     'Test-VT100Supported',
     'Get-ModeColor'

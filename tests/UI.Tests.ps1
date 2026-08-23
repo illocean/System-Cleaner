@@ -107,12 +107,10 @@ Describe 'Bakunawa.UI: module hygiene' {
         $path = Join-Path $script:Src 'Bakunawa.UI.psm1'
         $raw = Get-Content -LiteralPath $path -Raw
         $raw | Should -Not -Match 'Export-ModuleMember\s+-Function\s+\*'
-        # Documented-private: dormant serpent/VT animation internals (minimal-UI redesign)
-        $private = @('Start-SerpentStrip','Update-SerpentStrip','Close-SerpentStrip',
-                     'New-SerpentBar','Test-IsWindowsTerminal')
+        # No documented-private functions remain: the serpent/VT animation engine
+        # was fully excised with the minimal-UI redesign (dead-code removal pass).
         $defined = [regex]::Matches($raw, '(?m)^function\s+([A-Za-z0-9-]+)') |
-            ForEach-Object { $_.Groups[1].Value } |
-            Where-Object { $_ -notin $private } | Sort-Object -Unique
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
         $exported = @(Get-Command -Module Bakunawa.UI -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty Name) | Sort-Object -Unique
         $diff = Compare-Object -ReferenceObject $defined -DifferenceObject $exported

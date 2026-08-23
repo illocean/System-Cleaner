@@ -1,0 +1,3 @@
+# Keep deepwork state visible to OpenCode (search/file tools) despite .gitignore
+!.slim/deepwork/
+!.slim/deepwork/**

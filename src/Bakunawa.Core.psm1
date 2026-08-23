@@ -1,6 +1,4 @@
-﻿# Bakunawa.Core.psm1 — Core engine, safety, sizing, health
-
-$ErrorActionPreference = 'Continue'
+# Bakunawa.Core.psm1 — Core engine, safety, sizing, health
 
 # ── C# ACCELERATOR ──
 try {
@@ -17,29 +15,19 @@ public static class FastSys {
                 if ((s.Attributes & FileAttributes.ReparsePoint) != 0) { continue; }
                 size += GetDirectorySize(s.FullName);
             }
-        } catch { /* Ignore locked/unauthorized folders */ }
+        } catch { }
         return size;
     }
-    public static long EnumerateFilesCount(string path, int maxFiles) {
-        long count = 0;
+    public static int EnumerateFilesCount(string path) {
+        int count = 0;
         try {
-            var queue = new System.Collections.Generic.Queue<string>();
-            queue.Enqueue(path);
-            while (queue.Count > 0 && count < maxFiles) {
-                var dir = queue.Dequeue();
-                try {
-                    var di = new DirectoryInfo(dir);
-                    foreach (var f in di.GetFiles()) {
-                        count++;
-                        if (count >= maxFiles) return count;
-                    }
-                    foreach (var s in di.GetDirectories()) {
-                        if ((s.Attributes & FileAttributes.ReparsePoint) != 0) { continue; }
-                        queue.Enqueue(s.FullName);
-                    }
-                } catch { /* Skip locked/unreadable subdirectories */ }
+            var d = new DirectoryInfo(path);
+            count += d.GetFiles().Length;
+            foreach (var s in d.GetDirectories()) {
+                if ((s.Attributes & FileAttributes.ReparsePoint) != 0) { continue; }
+                count += EnumerateFilesCount(s.FullName);
             }
-        } catch { /* Ignore top-level failures */ }
+        } catch { }
         return count;
     }
 }
@@ -64,77 +52,76 @@ $script:ActiveStepPct    = 0
 $script:Errors           = @()
 $script:LogFilePath      = ''
 $script:HealthCache      = $null
+$script:TempSizeCache    = $null
 $script:LastOrphanRisks  = $null
+$script:OrphanCache      = $null
+$script:OrphanCacheTime  = $null
 $script:SysLoc           = $null
-$script:UiStopwatch      = $null
-$script:LastUiMs         = 0
-$script:UiTickMs         = 150
 
 function Get-FreeSpaceInfo {
+    [CmdletBinding()]
     param([string]$DriveLetter)
     if ([string]::IsNullOrWhiteSpace($DriveLetter)) {
         $sd = [Environment]::GetEnvironmentVariable('SystemDrive','Process')
-        if (-not $sd) { $sd = 'C:' }
-        $DriveLetter = $sd.TrimEnd(':')
+        $DriveLetter = if ($sd) { $sd.TrimEnd(':') } else { 'C' }
+    } else {
+        $DriveLetter = $DriveLetter.TrimEnd(':')
     }
-    $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='${DriveLetter}:'" -ErrorAction SilentlyContinue
-    if (-not $d) { return [PSCustomObject]@{MB=0;GB=0} }
-    [PSCustomObject]@{
-        MB = [math]::Round($d.FreeSpace / 1MB)
-        GB = [math]::Round($d.FreeSpace / 1GB, 2)
+    
+    if (-not $DriveLetter) { $DriveLetter = 'C' }
+    
+    try {
+        $driveInfo = [System.IO.DriveInfo]::new("${DriveLetter}:")
+        if (-not $driveInfo.IsReady) { 
+            return [PSCustomObject]@{MB=0;GB=0;TotalMB=0;TotalGB=0;UsedMB=0;UsedGB=0}
+        }
+        
+        $freeBytes = [long]$driveInfo.AvailableFreeSpace
+        if ($freeBytes -lt 0) { $freeBytes = 0 }
+        $totalBytes = [long]$driveInfo.TotalSize
+        if ($totalBytes -lt 1) { $totalBytes = 1 }
+        $usedBytes = [long]($totalBytes - $freeBytes)
+        
+        return [PSCustomObject]@{
+            MB = [math]::Round($freeBytes / 1MB)
+            GB = [math]::Round($freeBytes / 1GB, 2)
+            TotalMB = [math]::Round($totalBytes / 1MB)
+            TotalGB = [math]::Round($totalBytes / 1GB, 2)
+            UsedMB = [math]::Round($usedBytes / 1MB)
+            UsedGB = [math]::Round($usedBytes / 1GB, 2)
+        }
+    } catch {
+        Write-Verbose "Get-FreeSpaceInfo error: $_"
+        return [PSCustomObject]@{MB=0;GB=0;TotalMB=0;TotalGB=0;UsedMB=0;UsedGB=0}
     }
 }
 
 function Get-DirectorySize {
+    [CmdletBinding()]
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return [long]0 }
-    if ([bool]('FastSys' -as [type])) {
-        try { return [FastSys]::GetDirectorySize($Path) } catch { Write-Verbose "Get-DirectorySize C# accelerator: $_" }
-        # ponytail: fall through to PowerShell fallback below
-    }
-    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -File -EA SilentlyContinue |
+    try {
+        if ([bool]('FastSys' -as [type])) { return [FastSys]::GetDirectorySize($Path) }
+    } catch { Write-Verbose "Get-DirectorySize C# accelerator failed: $_" }
+    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -EA SilentlyContinue |
         Measure-Object -Property Length -Sum -EA SilentlyContinue).Sum
     if ($null -eq $sum) { [long]0 } else { [long]$sum }
 }
 
 function Get-DirectorySizeEstimate {
-    param(
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]$Path,
-        [int]$MaxFiles = 1000
-    )
-    process {
-        if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-            return [PSCustomObject]@{ Path = $Path; Bytes = [long]0; FileCount = 0; IsEstimate = $false }
-        }
-        # Fast path: C# accelerator (compiled, ~100× faster than Get-ChildItem -Recurse)
-        if ([bool]('FastSys' -as [type])) {
-            $bytes = [FastSys]::GetDirectorySize($Path)
-            $count = 0
-            try {
-                $count = [FastSys]::EnumerateFilesCount($Path, $MaxFiles)
-            } catch { $count = 0 }
-            return [PSCustomObject]@{
-                Path = $Path; Bytes = $bytes; FileCount = $count
-                IsEstimate = ($count -ge $MaxFiles)
-            }
-        }
-        # Slow fallback (PowerShell-only environments)
-        $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -File -EA SilentlyContinue | Select-Object -First $MaxFiles
-        $count = @($files).Count
-        if ($count -eq 0) {
-            return [PSCustomObject]@{ Path = $Path; Bytes = [long]0; FileCount = 0; IsEstimate = $false }
-        }
-        $sum = ($files | Measure-Object -Property Length -Sum -EA SilentlyContinue).Sum
-        if ($null -eq $sum) { $sum = 0 }
-        return [PSCustomObject]@{
-            Path = $Path; Bytes = [long]$sum; FileCount = $count
-            IsEstimate = ($count -ge $MaxFiles)
-        }
+    [CmdletBinding()]
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return [PSCustomObject]@{ Path = $Path; Bytes = 0; FileCount = 0; IsEstimate = $false }
     }
+    $di = [System.IO.DirectoryInfo]::new($Path)
+    $files = $di.GetFiles('*', [System.IO.SearchOption]::AllDirectories)
+    $bytes = ($files | Measure-Object -Property Length -Sum).Sum
+    return [PSCustomObject]@{ Path = $Path; Bytes = [long]$bytes; FileCount = $files.Count; IsEstimate = $false }
 }
 
 function Format-FileSize {
+    [CmdletBinding()]
     param([long]$Bytes)
     if ($Bytes -ge 1GB) { return '{0:N2} GB' -f ($Bytes / 1GB) }
     if ($Bytes -ge 1MB) { return '{0:N1} MB' -f ($Bytes / 1MB) }
@@ -147,12 +134,34 @@ function New-TrackedSet {
 }
 
 function Resolve-FullPath {
+    [CmdletBinding()]
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
     try { return [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { Write-Verbose "Resolve-FullPath: $_"; return $null }
 }
 
+function Resolve-RealPath {
+    [CmdletBinding()]
+    param([string]$Path)
+    # Resolves full path, then follows symlinks/junctions to true destination
+    $full = Resolve-FullPath $Path
+    if (-not $full -or -not (Test-Path -LiteralPath $full)) { return $full }
+    try {
+        $item = Get-Item -LiteralPath $full -Force -EA SilentlyContinue
+        if ($item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            # It's a symlink or junction; resolve to target
+            $target = $item.Target
+            if ($target) {
+                $resolved = Resolve-FullPath $target
+                return if ($resolved) { $resolved } else { $full }
+            }
+        }
+    } catch {}
+    return $full
+}
+
 function Get-EnvPath {
+    [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
     foreach ($s in 'Process','User','Machine') {
         $v = [Environment]::GetEnvironmentVariable($Name, $s)
@@ -163,81 +172,99 @@ function Get-EnvPath {
 }
 
 function Join-EnvPath {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(ValueFromRemainingArguments = $true)][string[]]$ChildPath
     )
     $b = Get-EnvPath -Name $Name
     if (-not $b) { return $null }
-    $joined = $b
+    if (-not $ChildPath -or $ChildPath.Count -eq 0) { return $b }
+    $fullPath = $b
     foreach ($segment in $ChildPath) {
-        if ([string]::IsNullOrWhiteSpace($segment)) { continue }
-        $joined = Join-Path $joined $segment
+        if ($segment) { $fullPath = Join-Path $fullPath $segment }
     }
-    # Skip Resolve-FullPath if path contains wildcards to avoid errors
-    if ($joined -match '[\?\*]') { return $joined }
-    return Resolve-FullPath $joined
+    return Resolve-FullPath $fullPath
 }
 
 function Test-IsAdministrator {
+    [CmdletBinding()]
     $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 function Restart-Elevated {
-    param(
-        [string]$SelectedMode,
-        [string]$ScriptPath = ''
-    )
-    # Resolve the script to launch: caller-provided path, or $PSCommandPath, or fallback relative to module
-    if (-not $ScriptPath -or -not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) {
-        $ScriptPath = if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath -PathType Leaf)) {
-            $PSCommandPath
-        } else {
-            # Fallback: Bakunawa.ps1 lives one dir up from src/
-            Join-Path (Split-Path $PSScriptRoot -Parent) 'Bakunawa.ps1'
-        }
+    [CmdletBinding()]
+    param([string]$SelectedMode)
+    $hostExe = $null
+    $pwsh = Get-Command pwsh.exe -ErrorAction Ignore
+    if ($pwsh) { $hostExe = $pwsh.Source }
+    else {
+        $winPs = Get-Command powershell.exe -ErrorAction Ignore
+        if ($winPs) { $hostExe = $winPs.Source }
     }
-    $args_ = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$ScriptPath`"")
-    if ($SelectedMode) { $args_ += '-Mode'; $args_ += $SelectedMode }
+    if (-not $hostExe) {
+        Write-Host 'PowerShell executable not found. Elevation requires powershell.exe or pwsh.exe.' -ForegroundColor Red
+        return $false
+    }
+    # Entry script lives one level above src/ in this repo layout; prefer real command path when available
+    $entry = Join-Path (Split-Path -Parent $PSScriptRoot) 'Bakunawa.ps1'
+    if ($PSCommandPath -and $PSCommandPath -like '*.ps1') { $entry = $PSCommandPath }
+    if (-not (Test-Path -LiteralPath $entry)) { return $false }
+    $cmd = "-NoProfile -ExecutionPolicy Bypass -File `"$entry`""
+    if ($SelectedMode) { $cmd += " -Mode $SelectedMode" }
     try {
         Write-Host ''
         Write-Host 'Administrator rights required. Requesting elevation...' -ForegroundColor Yellow
-        Start-Process powershell.exe -Verb RunAs -ArgumentList $args_ | Out-Null
+        Start-Process -FilePath $hostExe -Verb RunAs -ArgumentList $cmd | Out-Null
         return $true
     } catch {
-        Write-Host 'Elevation cancelled.' -ForegroundColor Red
+        Write-Host "Elevation failed: $($_.Exception.Message)" -ForegroundColor Red
         return $false
     }
 }
 
 function Get-ExcludedPaths {
+    [CmdletBinding()]
     param([string[]]$ExtraExcludePath)
     $set = New-TrackedSet
-    foreach ($c in @(
-        (Join-EnvPath 'USERPROFILE' 'Downloads'),
-        (Join-EnvPath 'USERPROFILE' 'Documents'),
-        (Join-EnvPath 'USERPROFILE' 'Desktop'),
-        (Join-EnvPath 'USERPROFILE' 'Pictures'),
-        (Join-EnvPath 'USERPROFILE' 'Videos'),
-        (Join-EnvPath 'USERPROFILE' 'Music'),
-        (Join-EnvPath 'OneDrive' 'Downloads'),
-        (Join-EnvPath 'LOCALAPPDATA' 'Packages')
-    )) {
-        $r = Resolve-FullPath $c
+    $standardFolders = @('Downloads','Documents','Desktop','Pictures','Videos','Music')
+    
+    # User profile standard folders (hard exclusion)
+    foreach ($folder in $standardFolders) {
+        $r = Resolve-RealPath (Join-EnvPath 'USERPROFILE' $folder)
         if ($r) { [void]$set.Add($r) }
     }
+    
+    # OneDrive personal (all five redirectable folders)
+    foreach ($folder in $standardFolders) {
+        $r = Resolve-RealPath (Join-EnvPath 'OneDrive' $folder)
+        if ($r) { [void]$set.Add($r) }
+    }
+    
+    # OneDrive Business (if present)
+    foreach ($folder in $standardFolders) {
+        $r = Resolve-RealPath (Join-EnvPath 'OneDriveCommercial' $folder)
+        if ($r) { [void]$set.Add($r) }
+    }
+    
+    # WinGet packages (user-managed)
+    $r = Resolve-RealPath (Join-EnvPath 'LOCALAPPDATA' 'Packages')
+    if ($r) { [void]$set.Add($r) }
+    
+    # User-provided extra exclusions
     foreach ($c in $ExtraExcludePath) {
-        $r = Resolve-FullPath $c
+        $r = Resolve-RealPath $c
         if ($r) { [void]$set.Add($r) }
     }
     return $set
 }
 
 function Test-IsExcludedPath {
+    [CmdletBinding()]
     param([string]$Path)
-    $r = Resolve-FullPath $Path
+    $r = Resolve-RealPath $Path
     if (-not $r -or -not $script:ExcludedPaths) { return $false }
     foreach ($e in $script:ExcludedPaths) {
         if ($r.Equals($e,[StringComparison]::OrdinalIgnoreCase) -or
@@ -247,6 +274,7 @@ function Test-IsExcludedPath {
 }
 
 function Get-DefaultApprovedRoots {
+    [CmdletBinding()]
     $set = New-TrackedSet
     foreach ($root in @(
         (Get-EnvPath 'TEMP'),
@@ -263,6 +291,7 @@ function Get-DefaultApprovedRoots {
 }
 
 function Test-SafeCleanupTarget {
+    [CmdletBinding()]
     param([string]$Path, [string[]]$ApprovedRoots = @(), [switch]$AllowRoot)
     $resolved = Resolve-FullPath $Path
     if (-not $resolved -or (Test-IsExcludedPath $resolved)) { return $false }
@@ -276,6 +305,7 @@ function Test-SafeCleanupTarget {
 }
 
 function Get-DisposableDirectoryNames {
+    [CmdletBinding()]
     $names = New-TrackedSet
     @(
         'cache','caches','code cache','gpucache','media cache','dawncache',
@@ -286,6 +316,7 @@ function Get-DisposableDirectoryNames {
 }
 
 function Test-IsDisposableLogPath {
+    [CmdletBinding()]
     param([string]$Path, [string]$Root)
     $resolvedPath = Resolve-FullPath $Path
     $resolvedRoot = Resolve-FullPath $Root
@@ -302,6 +333,7 @@ function Test-IsDisposableLogPath {
 }
 
 function Get-DisposableLogCandidates {
+    [CmdletBinding()]
     param([string[]]$Roots, [int]$OlderThanDays = 14)
     $cutoff = (Get-Date).AddDays(-$OlderThanDays)
     $candidates = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
@@ -326,6 +358,7 @@ function Get-DisposableLogCandidates {
 }
 
 function Get-StaleDisposableDirectories {
+    [CmdletBinding()]
     param([string[]]$Roots, [int]$OlderThanDays = 45)
     $cutoff = (Get-Date).AddDays(-$OlderThanDays)
     $disposableNames = Get-DisposableDirectoryNames
@@ -344,6 +377,7 @@ function Get-StaleDisposableDirectories {
 }
 
 function Get-JunkSweepRoots {
+    [CmdletBinding()]
     $set = New-TrackedSet
     foreach ($root in @(
         (Get-EnvPath 'TEMP'),
@@ -359,6 +393,7 @@ function Get-JunkSweepRoots {
 }
 
 function Get-RunningProcessNames {
+    [CmdletBinding()]
     $set = New-TrackedSet
     foreach ($name in (Get-Process -EA SilentlyContinue | Select-Object -ExpandProperty Name -Unique)) {
         [void]$set.Add($name)
@@ -366,7 +401,24 @@ function Get-RunningProcessNames {
     return $set
 }
 
+function Initialize-CoreSafetyState {
+    [CmdletBinding()]
+    param(
+        [string[]]$ExtraExcludePath
+    )
+    
+    $script:ExcludedPaths = Get-ExcludedPaths -ExtraExcludePath $ExtraExcludePath
+    $script:RunningProcesses = Get-RunningProcessNames
+    $script:SysLoc = Get-SystemLocations
+    
+    return [PSCustomObject]@{
+        ExcludedPathCount = if ($script:ExcludedPaths) { $script:ExcludedPaths.Count } else { 0 }
+        ProcessCount = if ($script:RunningProcesses) { $script:RunningProcesses.Count } else { 0 }
+    }
+}
+
 function Test-AnyProcessRunning {
+    [CmdletBinding()]
     param($RunningProcesses, [string[]]$Names)
     foreach ($name in $Names) {
         if ($RunningProcesses.Contains($name)) { return $true }
@@ -375,12 +427,13 @@ function Test-AnyProcessRunning {
 }
 
 function Register-SkippedItem {
+    [CmdletBinding()]
     param([string]$Reason, [string]$Target)
     $script:SkippedItems += [PSCustomObject]@{ Reason = $Reason; Target = $Target }
-    Write-Log "Skipped ${Target}: $Reason" 'WARN'
 }
 
 function Get-OrphanRiskScore {
+    [CmdletBinding()]
     param([string]$Name, [long]$SizeBytes, [int]$DaysStale, [string]$PathSuffix,
           [string[]]$InstalledNames = @(), [string[]]$RunningNames = @())
     $staleness = if ($DaysStale -ge 365) { 40 } elseif ($DaysStale -ge 90) { 30 } elseif ($DaysStale -ge 30) { 15 } else { 0 }
@@ -410,16 +463,29 @@ function Get-OrphanRiskScore {
 }
 
 function Get-HealthScore {
+    [CmdletBinding()]
+    param([switch]$Fast)
     $now = Get-Date
     if ($script:HealthCache -and ($now -lt $script:HealthCache.Expires)) { return $script:HealthCache.Data }
+    
     $free = Get-FreeSpaceInfo
-    $totalMB = $free.MB + 1
-    $diskPct = [math]::Round(($free.MB / $totalMB) * 100)
+    # Calculate disk percentage correctly: (free / total) * 100
+    $diskPct = if ($free.TotalMB -gt 0) { [math]::Round(($free.MB / $free.TotalMB) * 100) } else { 0 }
     $diskScore = if ($diskPct -ge 30) { 30 } elseif ($diskPct -ge 20) { 25 } elseif ($diskPct -ge 10) { 15 } elseif ($diskPct -ge 5) { 5 } else { 0 }
+    
     $tempTotal = 0L
-    foreach ($tp in @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'))) { $tempTotal += Get-DirectorySize $tp }
+    if ($Fast) {
+        # ponytail: header health skips the recursive temp walk (can take 10s+ on big temps); full score in Health view
+        if ($script:TempSizeCache) { $tempTotal = $script:TempSizeCache }
+    } else {
+        foreach ($tp in @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'))) { 
+            $tempTotal += Get-DirectorySize $tp 
+        }
+        $script:TempSizeCache = $tempTotal
+    }
     $tempMB = $tempTotal / 1MB
     $tempScore = if ($tempMB -lt 500) { 25 } elseif ($tempMB -lt 2000) { 18 } elseif ($tempMB -lt 5000) { 10 } elseif ($tempMB -lt 10000) { 5 } else { 0 }
+    
     $browserRoots = @(
         (Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data\Default\Cache'),
         (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data\Default\Cache'),
@@ -433,6 +499,7 @@ function Get-HealthScore {
         }
     }
     $browserScore = if ($oldestCacheDays -lt 7) { 20 } elseif ($oldestCacheDays -lt 30) { 14 } elseif ($oldestCacheDays -lt 90) { 8 } else { 0 }
+    
     $orphanScore = 25
     $orphanInfo = $script:LastOrphanRisks
     if ($orphanInfo) {
@@ -441,22 +508,42 @@ function Get-HealthScore {
                     elseif ($orphanInfo.HighCount -le 5 -or $orphanInfo.MedCount -le 10) { 5 }
                     else { 0 }
     }
+    
     $totalScore = $diskScore + $tempScore + $browserScore + $orphanScore
     $grade = if ($totalScore -ge 85) { 'Excellent' } elseif ($totalScore -ge 65) { 'Good' } elseif ($totalScore -ge 40) { 'Fair' } else { 'Needs attention' }
     $gradeColor = if ($totalScore -ge 85) { 'Green' } elseif ($totalScore -ge 65) { 'Cyan' } elseif ($totalScore -ge 40) { 'Yellow' } else { 'Red' }
-    $result = [PSCustomObject]@{ Score = $totalScore; Grade = $grade; GradeColor = $gradeColor; DiskScore = $diskScore; TempScore = $tempScore; BrowserScore = $browserScore; OrphanScore = $orphanScore; DiskPct = $diskPct; TempMB = [math]::Round($tempMB); BrowserAge = $oldestCacheDays; OrphanInfo = $orphanInfo }
+    
+    $result = [PSCustomObject]@{ 
+        Score = $totalScore
+        Grade = $grade
+        GradeColor = $gradeColor
+        DiskScore = $diskScore
+        TempScore = $tempScore
+        BrowserScore = $browserScore
+        OrphanScore = $orphanScore
+        DiskPct = $diskPct
+        TempMB = [math]::Round($tempMB)
+        BrowserAge = $oldestCacheDays
+        OrphanInfo = $orphanInfo
+    }
     $script:HealthCache = @{ Data = $result; Expires = $now.AddSeconds(30) }
     return $result
 }
 
 function Get-AppLogoLines {
+    [CmdletBinding()]
+    param()
     @(
-        '██████╗  █████╗ ██╗  ██╗██╗   ██╗███╗   ██╗ █████╗ ██╗    ██╗ █████╗ '
-        '██╔══██╗██╔══██╗██║ ██╔╝██║   ██║████╗  ██║██╔══██╗██║    ██║██╔══██╗'
-        '██████╔╝███████║█████╔╝ ██║   ██║██╔██╗ ██║███████║██║ █╗ ██║███████║'
-        '██╔══██╗██╔══██║██╔═██╗ ██║   ██║██║╚██╗██║██╔══██║██║███╗██║██╔══██║'
-        '██████╔╝██║  ██║██║  ██╗╚██████╔╝██║ ╚████║██║  ██║╚███╔███╔╝██║  ██║'
-        '╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝'
+        ' .------------------------------------------------------------. '
+        ' |   ____        _           _                                | '
+        ' |  | _ \      | |         | |                               | '
+        ' |  | |_) | __ _| | ____ _  | |__   __ _ _ __  _   _ ___      | '
+        ' |  |  _ < / _` | |/ / _` | | `_ \ / _` | `_ \| | | / __|     | '
+        ' |  | |_) | (_| |   < (_| | | |_) | (_| | |_) | |_| \__ \     | '
+        ' |  |____/ \__,_|_|\_\__,_| |_.__/ \__,_| .__/ \__,_|___/     | '
+        ' |                                       | |                  | '
+        ' |    B A K U N A W A   v3              |_|   Devour Waste    | '
+        ' `------------------------------------------------------------` '
     )
 }
 
@@ -465,6 +552,7 @@ function Get-ConsoleWidth {
 }
 
 function Get-DisplayText {
+    [CmdletBinding()]
     param([string]$Text,[int]$MaxWidth)
     if(!$Text){return ''}
     if($Text.Length -le $MaxWidth){return $Text}
@@ -473,6 +561,7 @@ function Get-DisplayText {
 }
 
 function Get-PathLabel {
+    [CmdletBinding()]
     param([string]$Path)
     $resolved = Resolve-FullPath $Path
     if (-not $resolved) { return $null }
@@ -482,6 +571,7 @@ function Get-PathLabel {
 }
 
 function Format-CompactList {
+    [CmdletBinding()]
     param([string[]]$Items,[int]$MaxItems=3)
     $labels = @($Items | Where-Object { $_ } | ForEach-Object { Get-PathLabel $_ } | Where-Object { $_ } | Select-Object -Unique)
     if (-not $labels) { return 'none' }
@@ -492,6 +582,7 @@ function Format-CompactList {
 }
 
 function New-AsciiBar {
+    [CmdletBinding()]
     param([int]$Value,[int]$Total,[int]$Width=18)
     if ($Width -lt 1) { $Width = 1 }
     $safeValue = [Math]::Max(0, $Value)
@@ -505,15 +596,15 @@ function New-AsciiBar {
 }
 
 function Get-SystemLocations {
+    [CmdletBinding()]
     $wr = Get-EnvPath 'SystemRoot'
     $pd = Get-EnvPath 'ProgramData'
     $sd = Get-EnvPath 'SystemDrive'
-    $result = [PSCustomObject]@{
+    $script:SysLoc = [PSCustomObject]@{
         WindowsRoot  = $wr
         ProgramData  = $pd
         SystemDrive  = $sd
         WindowsTemp  = $(if($wr){Join-Path $wr 'Temp'})
-        CrashDumps   = $(if($wr){Join-Path $wr 'CrashDumps'})
         WerArchive   = $(if($pd){Join-Path $pd 'Microsoft\Windows\WER\ReportArchive'})
         WerQueue     = $(if($pd){Join-Path $pd 'Microsoft\Windows\WER\ReportQueue'})
         NetDownloader= $(if($pd){Join-Path $pd 'Microsoft\Network\Downloader'})
@@ -522,8 +613,105 @@ function Get-SystemLocations {
         DeliveryOpt  = $(if($wr){Join-Path $wr 'SoftwareDistribution\DeliveryOptimization'})
         RecycleBin   = $(if($sd){Join-Path $sd '$Recycle.Bin'})
     }
-    $script:SysLoc = $result
-    return $result
+    return $script:SysLoc
 }
 
-Export-ModuleMember -Function * -Variable *
+function Get-AllAppDefinitions {
+    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+    Loads all application definitions from the app-definitions/apps.json file
+    .OUTPUTS
+    Array of app definition objects with Name and Path properties (flattened from locations)
+    #>
+    $appDefPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'app-definitions\apps.json'
+    if (-not (Test-Path -LiteralPath $appDefPath)) {
+        Write-Verbose "App definitions file not found at $appDefPath"
+        return @()
+    }
+    
+    try {
+        $allApps = Get-Content -LiteralPath $appDefPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $allApps) { return @() }
+        
+        $flattened = @()
+        foreach ($app in $allApps) {
+            if (-not $app.name -or -not $app.locations) { continue }
+            
+            foreach ($loc in $app.locations) {
+                if (-not $loc.env -or -not $loc.path) { continue }
+                
+                # Build the full path using environment variable
+                $envValue = [Environment]::GetEnvironmentVariable($loc.env, 'Process')
+                if (-not $envValue) { continue }
+                
+                $fullPath = Join-Path $envValue $loc.path
+                $flattened += [PSCustomObject]@{
+                    Name = $app.name
+                    Path = $fullPath
+                    Env = $loc.env
+                    Process = $app.process
+                }
+            }
+        }
+        return $flattened
+    } catch {
+        Write-Verbose "Error loading app definitions: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+function Get-AppDefinitions {
+    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+    Gets app definitions from a category-specific definition file
+    .PARAMETER Category
+    The category file to load (e.g., 'devtools-extended' loads app-definitions\devtools-extended.json)
+    .OUTPUTS
+    Array of flattened app definition objects with Name, Path, Env, Process properties
+    #>
+    param([string]$Category)
+
+    if ([string]::IsNullOrWhiteSpace($Category)) {
+        Write-Verbose 'Get-AppDefinitions: no category specified'
+        return @()
+    }
+
+    $appDefPath = Join-Path (Split-Path -Parent $PSScriptRoot) ("app-definitions\{0}.json" -f $Category)
+    if (-not (Test-Path -LiteralPath $appDefPath)) {
+        Write-Verbose "App definitions file not found at $appDefPath"
+        return @()
+    }
+
+    try {
+        $allApps = Get-Content -LiteralPath $appDefPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $allApps) { return @() }
+
+        $flattened = @()
+        foreach ($app in $allApps) {
+            if (-not $app.name -or -not $app.locations) { continue }
+
+            foreach ($loc in $app.locations) {
+                if (-not $loc.env -or -not $loc.path) { continue }
+
+                $envValue = [Environment]::GetEnvironmentVariable($loc.env, 'Process')
+                if (-not $envValue) { continue }
+
+                $fullPath = Join-Path $envValue $loc.path
+                $flattened += [PSCustomObject]@{
+                    Name = $app.name
+                    Path = $fullPath
+                    Env = $loc.env
+                    Process = $app.process
+                }
+            }
+        }
+        return $flattened
+    } catch {
+        Write-Verbose "Error loading app definitions: $($_.Exception.Message)"
+        return @()
+    }
+}
+
+Export-ModuleMember -Function Get-FreeSpaceInfo, Get-DirectorySize, Get-DirectorySizeEstimate, Format-FileSize, New-TrackedSet, Resolve-FullPath, Resolve-RealPath, Get-EnvPath, Join-EnvPath, Test-IsAdministrator, Restart-Elevated, Get-ExcludedPaths, Test-IsExcludedPath, Get-DefaultApprovedRoots, Test-SafeCleanupTarget, Get-DisposableDirectoryNames, Test-IsDisposableLogPath, Get-DisposableLogCandidates, Get-StaleDisposableDirectories, Get-JunkSweepRoots, Get-RunningProcessNames, Test-AnyProcessRunning, Register-SkippedItem, Get-OrphanRiskScore, Get-HealthScore, Get-AllAppDefinitions, Get-AppDefinitions, Get-SystemLocations, Get-AppLogoLines, Get-ConsoleWidth, Get-DisplayText, Get-PathLabel, Format-CompactList, New-AsciiBar, Initialize-CoreSafetyState

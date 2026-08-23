@@ -404,7 +404,7 @@ function Get-RunningProcessNames {
 function Initialize-CoreSafetyState {
     [CmdletBinding()]
     param(
-        [string[]]$ExtraExcludePath
+        [AllowEmptyCollection()][string[]]$ExtraExcludePath
     )
     
     $script:ExcludedPaths = Get-ExcludedPaths -ExtraExcludePath $ExtraExcludePath

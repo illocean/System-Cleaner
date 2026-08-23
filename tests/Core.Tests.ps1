@@ -199,6 +199,16 @@ Describe 'Bakunawa.Core: module hygiene' {
         $raw | Should -Not -Match 'Export-ModuleMember\s+-Function\s+\*'
     }
 
+    It 'exports every defined function explicitly (allowlist completeness)' {
+        $raw = Get-Content -LiteralPath $script:ModulePath -Raw
+        $defined = [regex]::Matches($raw, '(?m)^function\s+([A-Za-z0-9-]+)') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        $exported = @(Get-Command -Module Bakunawa.Core -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name) | Sort-Object -Unique
+        $diff = Compare-Object -ReferenceObject $defined -DifferenceObject $exported
+        ($diff | Out-String) | Should -BeNullOrEmpty -Because 'every defined function must be in the export allowlist'
+    }
+
     It 'every public function declares CmdletBinding' {
         $raw = Get-Content -LiteralPath $script:ModulePath -Raw
         $funcs = [regex]::Matches($raw, '(?m)^function\s+([A-Za-z0-9-]+)')

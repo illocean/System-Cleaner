@@ -3,6 +3,34 @@
 # Write-Log is provided by Bakunawa.UI.psm1 (imported after this module with -Scope Global)
 # so the global Write-Log will be the themed version from UI.psm1.
 
+# NOTE FOR REVIEWERS: Measure-AndClear is the SINGLE error-collection boundary for deletion work.
+# Its internal try/catch appends every terminating failure to $script:Errors - callers must NOT
+# wrap Measure-AndClear calls in additional try/catch (that would double-collect).
+
+# Private helper: one consistent sink for per-path cleanup errors (collect-errors-and-continue).
+function Register-CleanupError {
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][string]$Path,
+        [AllowEmptyString()][string]$Category,
+        [Parameter(Mandatory)][string]$Message
+    )
+    if (-not $script:Errors) { $script:Errors = @() }
+    $script:Errors += @{
+        Path     = $Path
+        Category = $(if ($Category) { $Category } else { 'Uncategorized' })
+        Error    = $Message
+    }
+}
+
+# Read-only accessor for collected cleanup errors (post-run reporting / diagnostics).
+# Emits elements directly - callers normalize with @(); do NOT comma-wrap (double-wrap bug).
+function Get-CleanupErrorLog {
+    [CmdletBinding()]
+    param()
+    if ($script:Errors) { return @($script:Errors) }
+}
+
 function Measure-AndClear {
     [CmdletBinding()]
     param(
@@ -53,9 +81,8 @@ function Measure-AndClear {
         }
         return $false
     } catch {
-        if ($Category) {
-            $script:Errors += @{ Path = $Path; Category = $Category; Error = $_.Exception.Message }
-        }
+        # Single collection point: record even without a Category (fallback label).
+        Register-CleanupError -Path $Path -Category $Category -Message $_.Exception.Message
         return $false
     }
 }
@@ -177,15 +204,15 @@ function Get-CleanupPotential {
                                     $count++
                                 }
                             }
-                        } else {
-                            if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                                $bytes += Get-DirectorySize $expandedPath
-                                $count++
-                            }
-                        }
-                    } catch {
-                        # Silently continue on path expansion errors
-                    }
+                          } else {
+                              if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                                  $bytes += Get-DirectorySize $expandedPath
+                                  $count++
+                              }
+                          }
+                      } catch {
+                          Register-CleanupError -Path $expandedPath -Category 'Potential Scan' -Message $_.Exception.Message
+                      }
                 }
             }
             'User Hidden Folders' {
@@ -475,15 +502,15 @@ function Clear-AppCaches {
                         if (Measure-AndClear $resolvedPath -Category $appsubcat) { $total++ }
                     }
                 }
-            } else {
-                if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                    $appsubcat = "$($app.Name) - $($app.Category)"
-                    if (Measure-AndClear $expandedPath -Category $appsubcat) { $total++ }
-                }
-            }
-        } catch {
-            # Silently continue on path expansion errors
-        }
+              } else {
+                  if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                      $appsubcat = "$($app.Name) - $($app.Category)"
+                      if (Measure-AndClear $expandedPath -Category $appsubcat) { $total++ }
+                  }
+              }
+          } catch {
+              Register-CleanupError -Path $expandedPath -Category $appsubcat -Message $_.Exception.Message
+          }
     }
     return $total
 }
@@ -532,14 +559,14 @@ function Clear-DevCaches {
                         if (Measure-AndClear $resolvedPath -Category "$cat - $($app.Name)") { $n++ }
                     }
                 }
-            } else {
-                if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                    if (Measure-AndClear $expandedPath -Category "$cat - $($app.Name)") { $n++ }
-                }
-            }
-        } catch {
-            # Silently continue on path expansion errors
-        }
+              } else {
+                  if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                      if (Measure-AndClear $expandedPath -Category "$cat - $($app.Name)") { $n++ }
+                  }
+              }
+          } catch {
+              Register-CleanupError -Path $expandedPath -Category $cat -Message $_.Exception.Message
+          }
     }
     return $n
 }
@@ -568,11 +595,12 @@ function Clear-RecycleBinSafe {
         if (-not $script:IsPreview) {
             Clear-RecycleBin -Force -ErrorAction SilentlyContinue
         }
-        Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "Recycle Bin"
-        return $true
-    } catch {
-        return $false
-    }
+          Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "Recycle Bin"
+          return $true
+      } catch {
+          Register-CleanupError -Path 'Recycle Bin' -Category 'Recycle Bin' -Message $_.Exception.Message
+          return $false
+      }
 }
 
 function Clear-SystemLogFiles {
@@ -605,11 +633,13 @@ function Remove-EmptyDirectories {
                     Remove-Item -LiteralPath $dir.FullName -Force -ErrorAction SilentlyContinue
                 }
                 Write-CommandLog "REMOVE $(if($script:IsPreview){'PREVIEW'}else{''})" $dir.FullName
-                if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
-            }
-        }
-    } catch {}
-}
+                  if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
+              }
+          }
+      } catch {
+          Register-CleanupError -Path $RootPath -Category 'Empty/Stale Folders' -Message $_.Exception.Message
+      }
+  }
 
 function Remove-StaleJunkFolders {
     [CmdletBinding()]
@@ -742,9 +772,10 @@ function Find-OrphanFolders {
                     }
                 }
             }
-        } catch {
-            Write-Verbose "Error scanning $scanPath : $_"
-        }
+          } catch {
+              Register-CleanupError -Path $scanPath -Category 'Orphan Scan' -Message $_.Exception.Message
+              Write-Verbose "Error scanning $scanPath : $_"
+          }
     }
     
     # Cache the results
@@ -781,9 +812,10 @@ function Clear-CachedOrphans {
             $deletedCount++
             Write-CommandLog "CLEAR $(if($Preview){'PREVIEW'}else{''})" $orphan.Path
             if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
-        } catch {
-            Write-Verbose "Failed to delete orphan $($orphan.Path): $_"
-        }
+          } catch {
+              Register-CleanupError -Path $orphan.Path -Category 'Orphan Scan' -Message $_.Exception.Message
+              Write-Verbose "Failed to delete orphan $($orphan.Path): $_"
+          }
     }
     
     $script:BytesFreed += $totalSize
@@ -815,11 +847,12 @@ function Clear-EventLogs {
                 Clear-EventLog -LogName $_.Log -ErrorAction SilentlyContinue
             }
         }
-        Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" 'Event Logs'
-        return $true
-    } catch {
-        return $false
-    }
+          Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" 'Event Logs'
+          return $true
+      } catch {
+          Register-CleanupError -Path 'Event Logs' -Category 'Log Files' -Message $_.Exception.Message
+          return $false
+      }
 }
 
 function Clear-FontCache {
@@ -1236,5 +1269,6 @@ Export-ModuleMember -Function @(
     'Clear-Prefetch',
     'Clear-EventLogs',
     'Clear-FontCache',
+    'Get-CleanupErrorLog',
     'Invoke-CleanupRun'
 )

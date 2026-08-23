@@ -67,6 +67,19 @@ Describe 'Bakunawa.Cleanup: Measure-AndClear core semantics' {
             $null = Initialize-CoreSafetyState
         }
     }
+
+    It 'collect contract: boundary failures land in Errors with NO caller try/catch (Gate 3 regression)' {
+        # Deterministic terminating failure: invalid path character ('|') makes
+        # New-Item -ErrorAction Stop throw ArgumentException inside the boundary catch.
+        $bad = Join-Path $TestDrive 'bad|name'
+
+        $before = @(Get-CleanupErrorLog).Count
+        Measure-AndClear -Path $bad -EnsureDirectory -Category 'ForcedFailure' | Should -BeFalse
+
+        $log = @(Get-CleanupErrorLog)
+        $log.Count | Should -BeGreaterThan $before
+        ($log | Where-Object { $_.Category -eq 'ForcedFailure' }) | Should -Not -BeNullOrEmpty
+    }
 }
 
 Describe 'Bakunawa.Cleanup: task catalog' {
@@ -159,8 +172,11 @@ Describe 'Bakunawa.Cleanup: module hygiene' {
     It 'exports every defined function explicitly (allowlist completeness)' {
         $path = Join-Path $script:Src 'Bakunawa.Cleanup.psm1'
         $raw = Get-Content -LiteralPath $path -Raw
+        # Documented-private helpers are intentionally absent from the allowlist
+        $private = @('Register-CleanupError')
         $defined = [regex]::Matches($raw, '(?m)^function\s+([A-Za-z0-9-]+)') |
-            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+            ForEach-Object { $_.Groups[1].Value } |
+            Where-Object { $_ -notin $private } | Sort-Object -Unique
         $exported = @(Get-Command -Module Bakunawa.Cleanup -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty Name) | Sort-Object -Unique
         $diff = Compare-Object -ReferenceObject $defined -DifferenceObject $exported

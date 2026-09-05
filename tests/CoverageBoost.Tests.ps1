@@ -14,6 +14,7 @@
 BeforeAll {
     $repoRoot = (Resolve-Path "$PSScriptRoot/..").Path
     Import-Module "$repoRoot/src/Bakunawa.Core.psm1" -Force
+    Import-Module "$repoRoot/src/Bakunawa.UI.psm1" -Force -DisableNameChecking
     Import-Module "$repoRoot/src/Bakunawa.Cleanup.psm1" -Force -DisableNameChecking
 
     # Expected source files (one per app-definitions/*.json) used for cross-validation.
@@ -26,6 +27,7 @@ BeforeAll {
 
 AfterAll {
     Remove-Module Bakunawa.Cleanup -ErrorAction SilentlyContinue
+    Remove-Module Bakunawa.UI -ErrorAction SilentlyContinue
     Remove-Module Bakunawa.Core -ErrorAction SilentlyContinue
 }
 
@@ -176,5 +178,134 @@ Describe 'Get-CleanupPotential (Phase 2 fix: add 5 missing switch arms)' {
         $potential.Count | Should -Be 1
         $potential[0].EstimatedBytes | Should -BeGreaterOrEqual 0
         $potential[0].FileCount       | Should -BeGreaterOrEqual 0
+    }
+}
+
+Describe 'Phase 3: Wildcard expansion in cleanup arms' {
+
+    BeforeEach {
+        # Sandbox: redirect LOCALAPPDATA to a fresh temp dir so the wildcard
+        # expansion in the cleanup arms can resolve a known absolute path.
+        $script:tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("pester_phase3_$([guid]::NewGuid().ToString('N'))")
+        New-Item -ItemType Directory -Path $script:tmpRoot -Force | Out-Null
+
+        $script:origLocalAppData = $env:LOCALAPPDATA
+        $script:origAppData      = $env:APPDATA
+        $script:origUsername     = $env:USERNAME
+
+        $env:LOCALAPPDATA = $script:tmpRoot
+        $env:APPDATA      = $script:tmpRoot
+        $env:USERNAME     = 'pester-user'
+
+        # The cleanup arms consult $script:RunningProcesses / $script:IsPreview
+        # / $script:ExcludedPaths. Make them inert for deterministic test runs.
+        $script:RunningProcesses = @()
+        $script:ExcludedPaths    = $null
+        $script:IsPreview        = $true
+        if (-not $script:SysLoc) { $script:SysLoc = Get-SystemLocations }
+        if (-not $script:CleanupResults) { $script:CleanupResults = New-Object System.Collections.Generic.List[object] }
+        # Track Measure-AndClear invocations for assertions.
+        $script:MeasureAndClearCalls = [System.Collections.Generic.List[object]]::new()
+    }
+
+    AfterEach {
+        $env:LOCALAPPDATA = $script:origLocalAppData
+        $env:APPDATA      = $script:origAppData
+        $env:USERNAME     = $script:origUsername
+        if ($script:tmpRoot -and (Test-Path -LiteralPath $script:tmpRoot)) {
+            Remove-Item -LiteralPath $script:tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'Get-CleanupPotential Browser Caches arm sources from app defs (not hardcoded list)' {
+        # Mock Get-AllAppDefinitions to return a single fake browser entry whose
+        # path uses the {profile} token. Seed a Default profile on disk.
+        $userDataRoot   = Join-Path $script:tmpRoot 'UserData'
+        $defaultProfile = Join-Path $userDataRoot 'Default'
+        $cacheDir       = Join-Path $defaultProfile 'Cache'
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $cacheDir 'data.bin'), (New-Object byte[] 4194304)) # 4 MB
+
+        $fakeBrowsers = @(
+            [PSCustomObject]@{
+                Name       = 'FakeBrowser'
+                Path       = (Join-Path $userDataRoot '{profile}\Cache')
+                Env        = 'LOCALAPPDATA'
+                Process    = $null
+                Category   = 'Browser Caches'
+                SourceFile = 'browsers.json'
+            }
+        )
+        Mock -ModuleName Bakunawa.Cleanup Get-AllAppDefinitions { param([string]$Category) $fakeBrowsers }
+
+        $potential = @(Get-CleanupPotential -Mode Standard | Where-Object Task -eq 'Browser Caches')
+        $potential.Count | Should -Be 1
+        $potential[0].FileCount       | Should -BeGreaterOrEqual 1 -Because 'mocked browser returned a profile that exists on disk'
+        $potential[0].EstimatedBytes | Should -BeGreaterOrEqual 4MB -Because '4 MB file must be measured'
+    }
+
+    It 'Get-CleanupPotential Productivity arm expands {profile} tokens (regression: missed profiles)' {
+        # Seed a fake Thunderbird profile with 1 MB of cache. The {profile}
+        # token in messaging.json must be expanded for the estimate to count it.
+        $profilePath = Join-Path (Join-Path (Join-Path $script:tmpRoot 'Profiles') 'abc.default-release') 'cache2'
+        New-Item -ItemType Directory -Path $profilePath -Force | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $profilePath 'data.bin'), (New-Object byte[] 1048576)) # 1 MB
+
+        $fakeApps = @(
+            [PSCustomObject]@{
+                Name       = 'Thunderbird'
+                Path       = (Join-Path (Join-Path $script:tmpRoot 'Profiles') '{profile}\cache2')
+                Env        = 'LOCALAPPDATA'
+                Process    = $null
+                Category   = 'Productivity'
+                SourceFile = 'messaging.json'
+            }
+        )
+        Mock -ModuleName Bakunawa.Cleanup Get-AllAppDefinitions { param([string]$Category) $fakeApps }
+
+        $potential = @(Get-CleanupPotential -Mode Standard | Where-Object Task -eq 'Productivity')
+        $potential.Count | Should -Be 1
+        $potential[0].FileCount       | Should -BeGreaterOrEqual 1
+        $potential[0].EstimatedBytes | Should -BeGreaterOrEqual 1MB
+    }
+
+    It 'Invoke-CleanupRun Productivity arm expands {profile} and calls Measure-AndClear on resolved path' {
+        $profilePath = Join-Path (Join-Path (Join-Path $script:tmpRoot 'Profiles') 'xyz.default-release') 'cache2'
+        New-Item -ItemType Directory -Path $profilePath -Force | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $profilePath 'data.bin'), (New-Object byte[] 524288)) # 512 KB
+
+        $fakeApps = @(
+            [PSCustomObject]@{
+                Name       = 'Thunderbird'
+                Path       = (Join-Path (Join-Path $script:tmpRoot 'Profiles') '{profile}\cache2')
+                Env        = 'LOCALAPPDATA'
+                Process    = $null
+                Category   = 'Productivity'
+                SourceFile = 'messaging.json'
+            }
+        )
+        Mock -ModuleName Bakunawa.Cleanup Get-AllAppDefinitions { param([string]$Category) $fakeApps }
+        Mock -ModuleName Bakunawa.Cleanup Measure-AndClear {
+            param([string]$Path,[switch]$EnsureDirectory,[string]$Category)
+            $script:MeasureAndClearCalls.Add([PSCustomObject]@{ Path = $Path; Category = $Category })
+            return $true
+        }
+
+        # Invoke-CleanupRun tasks loop also touches other categories. Stub them
+        # out so the test only exercises the Productivity arm. Stub out the UI
+        # stepper functions (Start-Step / Finish-Step) that live in the UI module
+        # and aren't available in this isolated test context.
+        $script:TasksToRun = @(@{ Name = 'Productivity'; Parallel = $false })
+        Mock -ModuleName Bakunawa.Cleanup Get-CleanupTasks { @($script:TasksToRun) }
+        Mock -ModuleName Bakunawa.UI       Start-Step       { } -ParameterFilter { $true }
+        Mock -ModuleName Bakunawa.UI       Finish-Step      { } -ParameterFilter { $true }
+        Mock -ModuleName Bakunawa.UI       Write-CommandLog { } -ParameterFilter { $true }
+
+        $null = Invoke-CleanupRun -Mode Preview
+
+        # Find the Measure-AndClear mock invocation(s) for the Productivity arm
+        $hits = @($script:MeasureAndClearCalls | Where-Object Category -eq 'Productivity')
+        $hits.Count | Should -BeGreaterOrEqual 1 -Because '{profile} must expand to the seeded profile on disk'
+        $hits[0].Path | Should -BeLike '*xyz.default-release*cache2*' -Because 'Measure-AndClear must be called on the resolved path, not the wildcard'
     }
 }

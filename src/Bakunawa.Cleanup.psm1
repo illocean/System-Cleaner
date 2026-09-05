@@ -23,6 +23,38 @@ function Register-CleanupError {
     }
 }
 
+# Recursively expands {placeholder} tokens in a path by enumerating matching
+# filesystem entries. Handles paths like <dir>/{profile}/Cache, where
+# {profile} maps to Default/Profile 1/Profile 2/etc.
+# Returns an array of fully-resolved absolute paths (never returns wildcard).
+function Expand-WildcardPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$DirectoriesOnly
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return @() }
+    if ($Path -notlike '*{*}*') { return @($Path) }
+
+    $results = [System.Collections.Generic.List[string]]::new()
+    $patternPath = $Path -replace '\{[^}]+\}', '*'
+
+    $childParams = @{ ErrorAction = 'SilentlyContinue' }
+    if ($DirectoriesOnly) { $childParams.Directory = $true }
+    $hits = @(Get-ChildItem -Path $patternPath @childParams)
+
+    foreach ($h in $hits) {
+        if ($h.FullName -like '*{*}*') {
+            foreach ($r in Expand-WildcardPath -Path $h.FullName -DirectoriesOnly:$DirectoriesOnly) {
+                [void]$results.Add($r)
+            }
+        } else {
+            [void]$results.Add($h.FullName)
+        }
+    }
+    return @($results)
+}
+
 # Read-only accessor for collected cleanup errors (post-run reporting / diagnostics).
 # Emits elements directly - callers normalize with @(); do NOT comma-wrap (double-wrap bug).
 function Get-CleanupErrorLog {
@@ -141,15 +173,21 @@ function Get-CleanupPotential {
                 }
             }
             'Browser Caches' {
-                $browserRoots = @(
-                    (Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data\Default\Cache'),
-                    (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data\Default\Cache'),
-                    (Join-EnvPath 'APPDATA' 'Mozilla\Firefox\Profiles')
-                )
-                foreach ($br in $browserRoots) {
-                    if ($br -and (Test-Path -LiteralPath $br -PathType Container)) {
-                        $bytes += Get-DirectorySize $br
-                        $count++
+                # Source from app definitions so Brave/Opera/Vivaldi/etc. are
+                # fully covered (the prior hardcoded list missed them).
+                $applist = Get-AllAppDefinitions -Category 'Browser Caches'
+                foreach ($app in $applist) {
+                    if (-not $app.Path) { continue }
+                    $expandedPath = $app.Path -replace '{username}',$env:USERNAME
+                    $expandedPath = $expandedPath -replace '{appdata}', $env:APPDATA
+                    $expandedPath = $expandedPath -replace '{localappdata}', $env:LOCALAPPDATA
+                    $expandedPath = $expandedPath -replace '{programdata}', $env:PROGRAMDATA
+                    $expandedPath = $expandedPath -replace '{systemdrive}', $env:SYSTEMDRIVE
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -164,23 +202,11 @@ function Get-CleanupPotential {
                     $expandedPath = $expandedPath -replace '{commonprogramfiles}', $env:COMMONPROGRAMFILES
                     $expandedPath = $expandedPath -replace '{systemdrive}', $env:SYSTEMDRIVE
                     $expandedPath = $expandedPath -replace '{windows}', $env:WINDIR
-                    # For path estimation we expand placeholder tokens to a wildcard
-                    # and take the first match. {*} paths are common for browser
-                    # profiles so the size approximation is reasonable.
-                    if ($expandedPath -like '*{*}*') {
-                        $patternPath = $expandedPath -replace '\{[^}]+\}','*'
-                        $parent = Split-Path -Path $patternPath -Parent
-                        $leaf   = Split-Path -Path $patternPath -Leaf
-                        if (-not $parent -or -not $leaf) { continue }
-                        $first = Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue | Select-Object -First 1
-                        if (-not $first) { continue }
-                        $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
-                        $expandedPath = Join-Path $first.FullName $resolvedLeaf
-                    }
-                    if (-not $expandedPath) { continue }
-                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                        $bytes += Get-DirectorySize $expandedPath
-                        $count++
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -195,7 +221,7 @@ function Get-CleanupPotential {
                         $count++
                     }
                 }
-                # NEW: Process devtools-extended app definitions
+                # Process devtools-extended app definitions
                 $extendedDefs = Get-AppDefinitions -Category 'devtools-extended'
                 foreach ($app in $extendedDefs) {
                     if (-not $app.Name) { continue }
@@ -207,25 +233,15 @@ function Get-CleanupPotential {
                         $expandedPath = $expandedPath -replace '{commonprogramfiles}', $env:COMMONPROGRAMFILES
                         $expandedPath = $expandedPath -replace '{systemdrive}', $env:SYSTEMDRIVE
                         $expandedPath = $expandedPath -replace '{windows}', $env:WINDIR
-                        if ($expandedPath -like '*{*}*') {
-                            $patternPath = $expandedPath -replace '{[^}]+}','*'
-                            $matches = Get-ChildItem -Path (Split-Path $patternPath) -Filter (Split-Path -Leaf $patternPath) -Directory -ErrorAction SilentlyContinue
-                            foreach ($match in $matches) {
-                                $resolvedPath = Join-Path $match.FullName (Split-Path -Leaf $expandedPath)
-                                if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
-                                    $bytes += Get-DirectorySize $resolvedPath
-                                    $count++
-                                }
+                        foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                            if (Test-Path -LiteralPath $resolved -PathType Container) {
+                                $bytes += Get-DirectorySize $resolved
+                                $count++
                             }
-                          } else {
-                              if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                                  $bytes += Get-DirectorySize $expandedPath
-                                  $count++
-                              }
-                          }
-                      } catch {
-                          Register-CleanupError -Path $expandedPath -Category 'Potential Scan' -Message $_.Exception.Message
-                      }
+                        }
+                    } catch {
+                        Register-CleanupError -Path $expandedPath -Category 'Potential Scan' -Message $_.Exception.Message
+                    }
                 }
             }
             'User Hidden Folders' {
@@ -369,9 +385,11 @@ function Get-CleanupPotential {
                 $applist = Get-AllAppDefinitions -Category 'Cloud Sync'
                 foreach ($app in $applist) {
                     $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                        $bytes += Get-DirectorySize $expandedPath
-                        $count++
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -379,9 +397,11 @@ function Get-CleanupPotential {
                 $applist = Get-AllAppDefinitions -Category 'Creative Apps'
                 foreach ($app in $applist) {
                     $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                        $bytes += Get-DirectorySize $expandedPath
-                        $count++
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -389,19 +409,11 @@ function Get-CleanupPotential {
                 $applist = Get-AllAppDefinitions -Category 'Productivity'
                 foreach ($app in $applist) {
                     $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                    if ($expandedPath -like '*{*}*') {
-                        $patternPath = $expandedPath -replace '\{[^}]+\}','*'
-                        $parent = Split-Path -Path $patternPath -Parent
-                        $leaf   = Split-Path -Path $patternPath -Leaf
-                        if (-not $parent -or -not $leaf) { continue }
-                        $first = Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue | Select-Object -First 1
-                        if (-not $first) { continue }
-                        $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
-                        $expandedPath = Join-Path $first.FullName $resolvedLeaf
-                    }
-                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                        $bytes += Get-DirectorySize $expandedPath
-                        $count++
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -409,9 +421,11 @@ function Get-CleanupPotential {
                 $applist = Get-AllAppDefinitions -Category 'DevOps Tools'
                 foreach ($app in $applist) {
                     $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                        $bytes += Get-DirectorySize $expandedPath
-                        $count++
+                    foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                        if (Test-Path -LiteralPath $resolved -PathType Container) {
+                            $bytes += Get-DirectorySize $resolved
+                            $count++
+                        }
                     }
                 }
             }
@@ -590,30 +604,15 @@ function Clear-AppCaches {
             $expandedPath = $expandedPath -replace '\{systemdrive\}', $env:SYSTEMDRIVE
             $expandedPath = $expandedPath -replace '\{windows\}', $env:WINDIR
 
-            # Handle placeholder tokens like {profile}, {product}
-            if ($expandedPath -like '*{*}*') {
-                $patternPath = $expandedPath -replace '\{[^}]+\}','*'
-                $parent = Split-Path -Path $patternPath -Parent
-                $leaf   = Split-Path -Path $patternPath -Leaf
-                if (-not $parent -or -not $leaf) { continue }
-                $matches = @(Get-ChildItem -LiteralPath $parent -Filter $leaf -Directory -ErrorAction SilentlyContinue)
-                foreach ($match in $matches) {
-                    $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
-                    $resolvedPath = Join-Path $match.FullName $resolvedLeaf
-                    if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
-                        $appsubcat = "$($app.Name) - $($app.Category)"
-                        if (Measure-AndClear $resolvedPath -Category $appsubcat) { $total++ }
-                    }
+            $appsubcat = "$($app.Name) - $($app.Category)"
+            foreach ($resolvedPath in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
+                    if (Measure-AndClear $resolvedPath -Category $appsubcat) { $total++ }
                 }
-              } else {
-                  if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                      $appsubcat = "$($app.Name) - $($app.Category)"
-                      if (Measure-AndClear $expandedPath -Category $appsubcat) { $total++ }
-                  }
-              }
-          } catch {
-              Register-CleanupError -Path $expandedPath -Category $appsubcat -Message $_.Exception.Message
-          }
+            }
+        } catch {
+            Register-CleanupError -Path $expandedPath -Category $appsubcat -Message $_.Exception.Message
+        }
     }
     return $total
 }
@@ -639,7 +638,7 @@ function Clear-DevCaches {
         if ($d -and (Measure-AndClear $d -Category $cat)) { $n++ }
     }
 
-    # NEW: Process devtools-extended app definitions for .local, .cache, scoop, cargo, android, go, bun
+    # Process devtools-extended app definitions for .local, .cache, scoop, cargo, android, go, bun
     $extendedDefs = Get-AppDefinitions -Category 'devtools-extended'
     foreach ($app in $extendedDefs) {
         if (-not $app.Name) { continue }
@@ -652,24 +651,14 @@ function Clear-DevCaches {
             $expandedPath = $expandedPath -replace '{systemdrive}',$env:SYSTEMDRIVE
             $expandedPath = $expandedPath -replace '{windows}',$env:WINDIR
 
-            # Handle wildcard profiles (Firefox-style {guid})
-            if ($expandedPath -like '*{*}*') {
-                $patternPath = $expandedPath -replace '{[^}]+}','*'
-                $matches = Get-ChildItem -Path (Split-Path $patternPath) -Filter (Split-Path -Leaf $patternPath) -Directory -ErrorAction SilentlyContinue
-                foreach ($match in $matches) {
-                    $resolvedPath = Join-Path $match.FullName (Split-Path -Leaf $expandedPath)
-                    if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
-                        if (Measure-AndClear $resolvedPath -Category "$cat - $($app.Name)") { $n++ }
-                    }
+            foreach ($resolvedPath in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
+                    if (Measure-AndClear $resolvedPath -Category "$cat - $($app.Name)") { $n++ }
                 }
-              } else {
-                  if (Test-Path -LiteralPath $expandedPath -PathType Container) {
-                      if (Measure-AndClear $expandedPath -Category "$cat - $($app.Name)") { $n++ }
-                  }
-              }
-          } catch {
-              Register-CleanupError -Path $expandedPath -Category $cat -Message $_.Exception.Message
-          }
+            }
+        } catch {
+            Register-CleanupError -Path $expandedPath -Category $cat -Message $_.Exception.Message
+        }
     }
     return $n
 }
@@ -1089,14 +1078,8 @@ function Invoke-CleanupRun {
                 foreach ($bp in $browserPaths) {
                     $p = [string]$bp.UserDataRoot
                     if ($p -like '*{*}*') {
-                        $patternPath = $p -replace '\{[^}]+\}','*'
-                        $parent = Split-Path -Path $patternPath -Parent
-                        $leaf   = Split-Path -Path $patternPath -Leaf
-                        if ($parent -and $leaf) {
-                            $hits = @(Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue)
-                            foreach ($h in $hits) {
-                                $normalized += @{ UserDataRoot = $h.FullName; Label = $bp.Label }
-                            }
+                        foreach ($hit in @(Expand-WildcardPath -Path $p -DirectoriesOnly)) {
+                            $normalized += @{ UserDataRoot = $hit; Label = $bp.Label }
                         }
                     } else {
                         $normalized += $bp
@@ -1158,8 +1141,10 @@ function Invoke-CleanupRun {
                  foreach ($app in $applist) {
                      if ($app.Path) {
                          $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                             Measure-AndClear $expandedPath -Category 'Cloud Sync' -EA SilentlyContinue | Out-Null
+                         foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                             if (Test-Path -LiteralPath $resolved -PathType Container) {
+                                 Measure-AndClear $resolved -Category 'Cloud Sync' -EA SilentlyContinue | Out-Null
+                             }
                          }
                      }
                  }
@@ -1170,8 +1155,10 @@ function Invoke-CleanupRun {
                  foreach ($app in $applist) {
                      if ($app.Path) {
                          $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                             Measure-AndClear $expandedPath -Category 'Creative Apps' -EA SilentlyContinue | Out-Null
+                         foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                             if (Test-Path -LiteralPath $resolved -PathType Container) {
+                                 Measure-AndClear $resolved -Category 'Creative Apps' -EA SilentlyContinue | Out-Null
+                             }
                          }
                      }
                  }
@@ -1182,8 +1169,10 @@ function Invoke-CleanupRun {
                  foreach ($app in $applist) {
                      if ($app.Path) {
                          $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                             Measure-AndClear $expandedPath -Category 'Productivity' -EA SilentlyContinue | Out-Null
+                         foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                             if (Test-Path -LiteralPath $resolved -PathType Container) {
+                                 Measure-AndClear $resolved -Category 'Productivity' -EA SilentlyContinue | Out-Null
+                             }
                          }
                      }
                  }
@@ -1194,8 +1183,10 @@ function Invoke-CleanupRun {
                  foreach ($app in $applist) {
                      if ($app.Path) {
                          $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                             Measure-AndClear $expandedPath -Category 'DevOps Tools' -EA SilentlyContinue | Out-Null
+                         foreach ($resolved in @(Expand-WildcardPath -Path $expandedPath -DirectoriesOnly)) {
+                             if (Test-Path -LiteralPath $resolved -PathType Container) {
+                                 Measure-AndClear $resolved -Category 'DevOps Tools' -EA SilentlyContinue | Out-Null
+                             }
                          }
                      }
                  }
@@ -1395,6 +1386,7 @@ Export-ModuleMember -Function @(
     'Get-CleanupTasks',
     'Get-CleanupPotential',
     'Remove-FilesByPattern',
+    'Expand-WildcardPath',
     'Clear-SystemCaches',
     'Clear-ChromiumCaches',
     'Clear-FirefoxCaches',

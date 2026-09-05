@@ -104,6 +104,7 @@ function Get-CleanupTasks {
     $null = $tasks.Add([PSCustomObject]@{ Name = 'DevOps Tools'; Parallel = $false })
     $null = $tasks.Add([PSCustomObject]@{ Name = 'GPU/Shell Caches'; Parallel = $false })
     $null = $tasks.Add([PSCustomObject]@{ Name = 'Recycle Bin'; Parallel = $false })
+    $null = $tasks.Add([PSCustomObject]@{ Name = 'Thumbnail Cache'; Parallel = $false })
     $null = $tasks.Add([PSCustomObject]@{ Name = 'Log Files'; Parallel = $false })
     $null = $tasks.Add([PSCustomObject]@{ Name = 'Empty/Stale Folders'; Parallel = $false })
     $null = $tasks.Add([PSCustomObject]@{ Name = 'Orphan Scan'; Parallel = $false })
@@ -153,7 +154,7 @@ function Get-CleanupPotential {
                 }
             }
             'App Caches' {
-                $applist = Get-AllAppDefinitions
+                $applist = Get-AllAppDefinitions -Category 'App Caches'
                 foreach ($app in $applist) {
                     if (-not $app.Name) { continue }
                     $expandedPath = $app.Path -replace '{username}',$env:USERNAME
@@ -163,7 +164,19 @@ function Get-CleanupPotential {
                     $expandedPath = $expandedPath -replace '{commonprogramfiles}', $env:COMMONPROGRAMFILES
                     $expandedPath = $expandedPath -replace '{systemdrive}', $env:SYSTEMDRIVE
                     $expandedPath = $expandedPath -replace '{windows}', $env:WINDIR
-                    if ($expandedPath -like '*{*}*') { continue }
+                    # For path estimation we expand placeholder tokens to a wildcard
+                    # and take the first match. {*} paths are common for browser
+                    # profiles so the size approximation is reasonable.
+                    if ($expandedPath -like '*{*}*') {
+                        $patternPath = $expandedPath -replace '\{[^}]+\}','*'
+                        $parent = Split-Path -Path $patternPath -Parent
+                        $leaf   = Split-Path -Path $patternPath -Leaf
+                        if (-not $parent -or -not $leaf) { continue }
+                        $first = Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $first) { continue }
+                        $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
+                        $expandedPath = Join-Path $first.FullName $resolvedLeaf
+                    }
                     if (-not $expandedPath) { continue }
                     if (Test-Path -LiteralPath $expandedPath -PathType Container) {
                         $bytes += Get-DirectorySize $expandedPath
@@ -324,6 +337,13 @@ function Get-CleanupPotential {
                     }
                 }
             }
+            'Thumbnail Cache' {
+                $thumbDir = (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\Explorer')
+                if ($thumbDir -and (Test-Path -LiteralPath $thumbDir -PathType Container)) {
+                    $bytes += Get-DirectorySize $thumbDir
+                    $count++
+                }
+            }
             'Empty/Stale Folders' {
                 foreach ($t in @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'), $script:SysLoc.WindowsTemp)) {
                     if ($t -and (Test-Path -LiteralPath $t -PathType Container)) {
@@ -343,6 +363,68 @@ function Get-CleanupPotential {
                         $bytes += Get-DirectorySize $r
                         $count++
                     }
+                }
+            }
+            'Cloud Sync' {
+                $applist = Get-AllAppDefinitions -Category 'Cloud Sync'
+                foreach ($app in $applist) {
+                    $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                        $bytes += Get-DirectorySize $expandedPath
+                        $count++
+                    }
+                }
+            }
+            'Creative Apps' {
+                $applist = Get-AllAppDefinitions -Category 'Creative Apps'
+                foreach ($app in $applist) {
+                    $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                        $bytes += Get-DirectorySize $expandedPath
+                        $count++
+                    }
+                }
+            }
+            'Productivity' {
+                $applist = Get-AllAppDefinitions -Category 'Productivity'
+                foreach ($app in $applist) {
+                    $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                    if ($expandedPath -like '*{*}*') {
+                        $patternPath = $expandedPath -replace '\{[^}]+\}','*'
+                        $parent = Split-Path -Path $patternPath -Parent
+                        $leaf   = Split-Path -Path $patternPath -Leaf
+                        if (-not $parent -or -not $leaf) { continue }
+                        $first = Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $first) { continue }
+                        $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
+                        $expandedPath = Join-Path $first.FullName $resolvedLeaf
+                    }
+                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                        $bytes += Get-DirectorySize $expandedPath
+                        $count++
+                    }
+                }
+            }
+            'DevOps Tools' {
+                $applist = Get-AllAppDefinitions -Category 'DevOps Tools'
+                foreach ($app in $applist) {
+                    $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                    if (Test-Path -LiteralPath $expandedPath -PathType Container) {
+                        $bytes += Get-DirectorySize $expandedPath
+                        $count++
+                    }
+                }
+            }
+            'Recycle Bin' {
+                try {
+                    $shell = New-Object -ComObject Shell.Application
+                    $bin = $shell.NameSpace(0xA)
+                    if ($bin) {
+                        $items = $bin.Items()
+                        foreach ($it in $items) { $bytes += [int]$it.Size }
+                    }
+                } catch {
+                    Register-CleanupError -Path 'Recycle Bin' -Category 'Recycle Bin' -Message $_.Exception.Message
                 }
             }
         }
@@ -400,7 +482,9 @@ function Clear-SystemCaches {
     $targets = @(
         (Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'),
         $script:SysLoc.WindowsTemp, (Join-EnvPath 'LOCALAPPDATA' 'CrashDumps'),
-        $script:SysLoc.WerArchive, $script:SysLoc.WerQueue, $script:SysLoc.NetDownloader
+        $script:SysLoc.WerArchive, $script:SysLoc.WerQueue, $script:SysLoc.NetDownloader,
+        (Join-Path (Get-EnvPath 'SystemDrive') 'temp'),
+        (Join-Path (Get-EnvPath 'SystemDrive') 'tmp')
     ) | Where-Object { $_ } | ForEach-Object { Resolve-FullPath $_ } | Select-Object -Unique
     foreach ($t in $targets) { if ($t -and (Measure-AndClear $t -EnsureDirectory -Category $cat)) { $n++ } }
     $restart = @()
@@ -424,7 +508,7 @@ function Clear-ChromiumCaches {
     [CmdletBinding()]
     param([AllowEmptyString()][string]$UserDataRoot, [AllowEmptyString()][string]$Label)
     $cat = 'Browser Caches'; $n = 0
-    
+
     # If no UserDataRoot provided, scan default Chromium locations
     if ([string]::IsNullOrWhiteSpace($UserDataRoot)) {
         $chromiumPaths = @(
@@ -442,7 +526,7 @@ function Clear-ChromiumCaches {
         }
         return $n
     }
-    
+
     if (-not (Test-Path -LiteralPath $UserDataRoot -PathType Container)) { return 0 }
     $running = if ($script:RunningProcesses) { $script:RunningProcesses } else { Get-RunningProcessNames }
     $processNames = switch ($Label) { 'Chrome' { @('chrome') } 'Edge' { @('msedge') } 'Brave' { @('brave') } 'Opera' { @('opera') } 'Vivaldi'{ @('vivaldi') } default { @() } }
@@ -450,10 +534,25 @@ function Clear-ChromiumCaches {
         Register-SkippedItem -Reason 'close the browser for a deeper cache cleanup' -Target $Label
         return 0
     }
-    $cacheDirs = @('Cache','Code Cache','GPUCache','Media Cache','DawnCache','ShaderCache','GrShaderCache')
-    foreach ($d in $cacheDirs) {
-        $p = Join-Path $UserDataRoot $d
-        if ($p -and (Measure-AndClear $p -EnsureDirectory -Category $cat)) { $n++ }
+
+    $cacheDirs = @('Cache','Code Cache','GPUCache','Media Cache','DawnCache','ShaderCache','GrShaderCache','GraphiteDawnCache','DawnWebGPUCache','Local Storage','Service Worker','blob_storage','Crashpad')
+
+    # Iterate every profile subdirectory (Default, Profile 1, ...) so per-profile
+    # caches are actually reached. Fall back to root-level cache dirs only when
+    # the root has no profile subdirectories at all (very old profiles).
+    $profileDirs = @(Get-ChildItem -LiteralPath $UserDataRoot -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' -or $_.Name -like 'Guest Profile' })
+    $targets = if ($profileDirs.Count -gt 0) {
+        $profileDirs
+    } else {
+        @([pscustomobject]@{ FullName = $UserDataRoot })
+    }
+
+    foreach ($prof in $targets) {
+        foreach ($d in $cacheDirs) {
+            $p = Join-Path $prof.FullName $d
+            if ($p -and (Measure-AndClear $p -EnsureDirectory -Category $cat)) { $n++ }
+        }
     }
     return $n
 }
@@ -474,13 +573,13 @@ function Clear-FirefoxCaches {
 function Clear-AppCaches {
     [CmdletBinding()]
     param()
-    $applist = Get-AllAppDefinitions
+    $applist = Get-AllAppDefinitions -Category 'App Caches'
     $cat = 'App Caches'; $total = 0
-    
+
     foreach ($app in $applist) {
         # Skip if any required fields are missing
         if (-not $app.Name) { continue }
-        
+
         # Expand wildcards in path
         try {
             $expandedPath = $app.Path -replace '\{username\}',$env:USERNAME
@@ -490,13 +589,17 @@ function Clear-AppCaches {
             $expandedPath = $expandedPath -replace '\{commonprogramfiles\}', $env:COMMONPROGRAMFILES
             $expandedPath = $expandedPath -replace '\{systemdrive\}', $env:SYSTEMDRIVE
             $expandedPath = $expandedPath -replace '\{windows\}', $env:WINDIR
-            
-            # Handle Firefox profiles which have random profile names
-            if ($expandedPath -like '*\{\*\}') {
+
+            # Handle placeholder tokens like {profile}, {product}
+            if ($expandedPath -like '*{*}*') {
                 $patternPath = $expandedPath -replace '\{[^}]+\}','*'
-                $matches = Get-ChildItem -Path (Split-Path $patternPath) -Filter (Split-Path -Leaf $patternPath) -Directory -ErrorAction SilentlyContinue
+                $parent = Split-Path -Path $patternPath -Parent
+                $leaf   = Split-Path -Path $patternPath -Leaf
+                if (-not $parent -or -not $leaf) { continue }
+                $matches = @(Get-ChildItem -LiteralPath $parent -Filter $leaf -Directory -ErrorAction SilentlyContinue)
                 foreach ($match in $matches) {
-                    $resolvedPath = Join-Path $match.FullName (Split-Path -Leaf $expandedPath)
+                    $resolvedLeaf = Split-Path -Path $expandedPath -Leaf
+                    $resolvedPath = Join-Path $match.FullName $resolvedLeaf
                     if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
                         $appsubcat = "$($app.Name) - $($app.Category)"
                         if (Measure-AndClear $resolvedPath -Category $appsubcat) { $total++ }
@@ -863,6 +966,36 @@ function Clear-FontCache {
     return (Measure-AndClear $fontCache -Category $cat)
 }
 
+function Clear-ThumbnailCache {
+    [CmdletBinding()]
+    param()
+    $thumbDir = (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\Explorer')
+    $cat = 'Thumbnail Cache'; $n = 0
+    if (-not $thumbDir -or -not (Test-Path -LiteralPath $thumbDir -PathType Container)) { return 0 }
+    # Only target the thumbnail DB files; leave other Explorer state (IconCache.db is also here)
+    $files = Get-ChildItem -LiteralPath $thumbDir -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'thumbcache_*.db' -or $_.Name -ieq 'IconCache.db' }
+    foreach ($f in $files) {
+        if (Test-IsExcludedPath $f.FullName) { continue }
+        $sz = $f.Length
+        Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "$($f.FullName) ($([math]::Round($sz/1MB,2)) MB)"
+        if (-not $script:IsPreview) {
+            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { Register-CleanupError -Path $f.FullName -Category $cat -Message $_.Exception.Message; continue }
+            $script:BytesFreed += [long]$sz
+            if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
+            if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
+            $script:CategorySizes[$cat] += [long]$sz
+        } else {
+            $script:BytesFreed += [long]$sz
+            if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
+            if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
+            $script:CategorySizes[$cat] += [long]$sz
+        }
+        $n++
+    }
+    return $n
+}
+
 function Invoke-CleanupRun {
     [CmdletBinding()]
     param(
@@ -930,16 +1063,15 @@ function Invoke-CleanupRun {
         
         switch ($taskName) {
             'System Caches' { $null = Clear-SystemCaches }
-            'Browser Caches' { 
-                # Get browser paths from config (would normally come from app definitions)
+            'Browser Caches' {
+                # Get browser paths from app definitions filtered to Browser Caches
                 $browserPaths = @()
-                $applist = Get-AllAppDefinitions
+                $applist = Get-AllAppDefinitions -Category 'Browser Caches'
                 foreach ($app in $applist) {
-                    if ($app.Category -like '*Browser*') {
-                        $browserPaths += @{ UserDataRoot = $app.Path; Label = $app.Name }
-                    }
+                    if (-not $app.Path) { continue }
+                    $browserPaths += @{ UserDataRoot = $app.Path; Label = $app.Name }
                 }
-                
+
                 if ($browserPaths.Count -eq 0) {
                     # Fallback defaults
                     $browserPaths = @(
@@ -950,10 +1082,29 @@ function Invoke-CleanupRun {
                         @{ UserDataRoot = (Join-EnvPath 'LOCALAPPDATA' 'Vivaldi' 'User Data'); Label = 'Vivaldi' }
                     )
                 }
-                
+
+                # Each browser app def may have a path with {profile} wildcard.
+                # Normalize to the User Data root for Clear-ChromiumCaches.
+                $normalized = @()
+                foreach ($bp in $browserPaths) {
+                    $p = [string]$bp.UserDataRoot
+                    if ($p -like '*{*}*') {
+                        $patternPath = $p -replace '\{[^}]+\}','*'
+                        $parent = Split-Path -Path $patternPath -Parent
+                        $leaf   = Split-Path -Path $patternPath -Leaf
+                        if ($parent -and $leaf) {
+                            $hits = @(Get-ChildItem -LiteralPath $parent -Directory -Filter $leaf -ErrorAction SilentlyContinue)
+                            foreach ($h in $hits) {
+                                $normalized += @{ UserDataRoot = $h.FullName; Label = $bp.Label }
+                            }
+                        }
+                    } else {
+                        $normalized += $bp
+                    }
+                }
+                if ($normalized.Count -gt 0) { $browserPaths = $normalized }
+
                 if ($isParallel) {
-                    # Parallel execution would use background jobs or runspaces
-                    # For simplicity, we'll run sequentially but note parallel capability
                     foreach ($browser in $browserPaths) {
                         $null = Clear-ChromiumCaches -UserDataRoot $browser.UserDataRoot -Label $browser.Label
                     }
@@ -962,7 +1113,7 @@ function Invoke-CleanupRun {
                         $null = Clear-ChromiumCaches -UserDataRoot $browser.UserDataRoot -Label $browser.Label
                     }
                 }
-                
+
                 # Firefox
                 $ffProfile = (Join-EnvPath 'APPDATA' 'Mozilla' 'Firefox' 'Profiles')
                 if (Test-Path -LiteralPath $ffProfile -PathType Container) {
@@ -979,6 +1130,7 @@ function Invoke-CleanupRun {
              'Package Manager Caches' { $null = Clear-PackageManagerCaches }
              'GPU/Shell Caches' { $null = Clear-GpuAndShellCaches }
             'Recycle Bin' { $null = Clear-RecycleBinSafe }
+            'Thumbnail Cache' { $null = Clear-ThumbnailCache }
             'Log Files' { $null = Clear-SystemLogFiles }
             'Empty/Stale Folders' { 
                 $tempDirs = @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'), $script:SysLoc.WindowsTemp)
@@ -1002,56 +1154,48 @@ function Invoke-CleanupRun {
              }
              'Cloud Sync' {
                  # OneDrive, Google Drive, Dropbox temp files
-                 $applist = Get-AllAppDefinitions
+                 $applist = Get-AllAppDefinitions -Category 'Cloud Sync'
                  foreach ($app in $applist) {
-                     if ($app.Category -like '*Cloud*' -or $app.Name -like '*OneDrive*' -or $app.Name -like '*Drive*' -or $app.Name -like '*Dropbox*') {
-                         if ($app.Path) {
-                             $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                             if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                                 Measure-AndClear $expandedPath -Category 'Cloud Sync' -EA SilentlyContinue | Out-Null
-                             }
+                     if ($app.Path) {
+                         $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
+                             Measure-AndClear $expandedPath -Category 'Cloud Sync' -EA SilentlyContinue | Out-Null
                          }
                      }
                  }
              }
              'Creative Apps' {
                  # Adobe, Affinity, Blender, etc. caches
-                 $applist = Get-AllAppDefinitions
+                 $applist = Get-AllAppDefinitions -Category 'Creative Apps'
                  foreach ($app in $applist) {
-                     if ($app.Category -like '*Creative*' -or $app.Category -like '*Design*' -or $app.Category -like '*Media*') {
-                         if ($app.Path) {
-                             $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                             if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                                 Measure-AndClear $expandedPath -Category 'Creative Apps' -EA SilentlyContinue | Out-Null
-                             }
+                     if ($app.Path) {
+                         $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
+                             Measure-AndClear $expandedPath -Category 'Creative Apps' -EA SilentlyContinue | Out-Null
                          }
                      }
                  }
              }
              'Productivity' {
                  # Office, Slack, Teams, etc. caches
-                 $applist = Get-AllAppDefinitions
+                 $applist = Get-AllAppDefinitions -Category 'Productivity'
                  foreach ($app in $applist) {
-                     if ($app.Category -like '*Office*' -or $app.Category -like '*Productivity*' -or $app.Category -like '*Communication*') {
-                         if ($app.Path) {
-                             $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                             if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                                 Measure-AndClear $expandedPath -Category 'Productivity' -EA SilentlyContinue | Out-Null
-                             }
+                     if ($app.Path) {
+                         $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
+                             Measure-AndClear $expandedPath -Category 'Productivity' -EA SilentlyContinue | Out-Null
                          }
                      }
                  }
              }
              'DevOps Tools' {
                  # Docker, Kubernetes, Terraform, etc. caches
-                 $applist = Get-AllAppDefinitions
+                 $applist = Get-AllAppDefinitions -Category 'DevOps Tools'
                  foreach ($app in $applist) {
-                     if ($app.Category -like '*DevOps*' -or $app.Category -like '*Docker*' -or $app.Category -like '*Kubernetes*') {
-                         if ($app.Path) {
-                             $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
-                             if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
-                                 Measure-AndClear $expandedPath -Category 'DevOps Tools' -EA SilentlyContinue | Out-Null
-                             }
+                     if ($app.Path) {
+                         $expandedPath = $app.Path -replace '{username}',$env:USERNAME -replace '{appdata}', $env:APPDATA -replace '{localappdata}', $env:LOCALAPPDATA
+                         if ((Test-Path -LiteralPath $expandedPath -PathType Container)) {
+                             Measure-AndClear $expandedPath -Category 'DevOps Tools' -EA SilentlyContinue | Out-Null
                          }
                      }
                  }

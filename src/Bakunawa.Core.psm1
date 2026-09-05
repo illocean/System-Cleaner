@@ -620,45 +620,68 @@ function Get-AllAppDefinitions {
     [CmdletBinding()]
     <#
     .SYNOPSIS
-    Loads all application definitions from the app-definitions/apps.json file
+    Loads all application definitions from every app-definitions/*.json file
+    .PARAMETER Category
+    Optional category filter. When supplied, only entries whose 'category' field
+    matches (case-insensitive, wildcard) are returned. When omitted, every entry
+    from every JSON file is returned.
     .OUTPUTS
-    Array of app definition objects with Name and Path properties (flattened from locations)
+    Array of app definition objects with Name, Path, Env, Process, Category,
+    and SourceFile properties (flattened from locations).
     #>
-    $appDefPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'app-definitions\apps.json'
-    if (-not (Test-Path -LiteralPath $appDefPath)) {
-        Write-Verbose "App definitions file not found at $appDefPath"
+    param([string]$Category)
+
+    $appDefDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'app-definitions'
+    if (-not (Test-Path -LiteralPath $appDefDir -PathType Container)) {
+        Write-Verbose "App definitions directory not found at $appDefDir"
         return @()
     }
-    
-    try {
-        $allApps = Get-Content -LiteralPath $appDefPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if (-not $allApps) { return @() }
-        
-        $flattened = @()
-        foreach ($app in $allApps) {
-            if (-not $app.name -or -not $app.locations) { continue }
-            
-            foreach ($loc in $app.locations) {
-                if (-not $loc.env -or -not $loc.path) { continue }
-                
-                # Build the full path using environment variable
-                $envValue = [Environment]::GetEnvironmentVariable($loc.env, 'Process')
-                if (-not $envValue) { continue }
-                
-                $fullPath = Join-Path $envValue $loc.path
-                $flattened += [PSCustomObject]@{
-                    Name = $app.name
-                    Path = $fullPath
-                    Env = $loc.env
-                    Process = $app.process
+
+    $jsonFiles = @(Get-ChildItem -LiteralPath $appDefDir -Filter '*.json' -File -ErrorAction SilentlyContinue)
+    if ($jsonFiles.Count -eq 0) {
+        Write-Verbose "No app definition JSON files found under $appDefDir"
+        return @()
+    }
+
+    $flattened = [System.Collections.Generic.List[object]]::new()
+    foreach ($jf in $jsonFiles) {
+        try {
+            $allApps = Get-Content -LiteralPath $jf.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (-not $allApps) { continue }
+
+            foreach ($app in $allApps) {
+                if (-not $app.name -or -not $app.locations) { continue }
+
+                $appCategory = if ($app.PSObject.Properties['category']) { [string]$app.category } else { '' }
+
+                # Optional filter by category
+                if (-not [string]::IsNullOrWhiteSpace($Category)) {
+                    if ([string]::IsNullOrWhiteSpace($appCategory)) { continue }
+                    if ($appCategory -notlike $Category) { continue }
+                }
+
+                foreach ($loc in $app.locations) {
+                    if (-not $loc.env -or $null -eq $loc.path) { continue }
+
+                    $envValue = [Environment]::GetEnvironmentVariable([string]$loc.env, 'Process')
+                    if (-not $envValue) { continue }
+
+                    $fullPath = Join-Path $envValue ([string]$loc.path)
+                    $flattened.Add([PSCustomObject]@{
+                        Name       = [string]$app.name
+                        Path       = $fullPath
+                        Env        = [string]$loc.env
+                        Process    = $app.process
+                        Category   = $appCategory
+                        SourceFile = $jf.Name
+                    })
                 }
             }
+        } catch {
+            Write-Verbose "Error loading app definitions from $($jf.Name): $($_.Exception.Message)"
         }
-        return $flattened
-    } catch {
-        Write-Verbose "Error loading app definitions: $($_.Exception.Message)"
-        return @()
     }
+    return @($flattened)
 }
 
 function Get-AppDefinitions {
@@ -667,9 +690,12 @@ function Get-AppDefinitions {
     .SYNOPSIS
     Gets app definitions from a category-specific definition file
     .PARAMETER Category
-    The category file to load (e.g., 'devtools-extended' loads app-definitions\devtools-extended.json)
+    The category file basename to load (e.g., 'devtools-extended' loads
+    app-definitions\devtools-extended.json). If the value ends in .json
+    it is used as-is.
     .OUTPUTS
-    Array of flattened app definition objects with Name, Path, Env, Process properties
+    Array of flattened app definition objects with Name, Path, Env, Process,
+    Category, and SourceFile properties.
     #>
     param([string]$Category)
 
@@ -678,7 +704,8 @@ function Get-AppDefinitions {
         return @()
     }
 
-    $appDefPath = Join-Path (Split-Path -Parent $PSScriptRoot) ("app-definitions\{0}.json" -f $Category)
+    $fileBase = $Category.TrimEnd('.json')
+    $appDefPath = Join-Path (Split-Path -Parent $PSScriptRoot) ("app-definitions\{0}.json" -f $fileBase)
     if (-not (Test-Path -LiteralPath $appDefPath)) {
         Write-Verbose "App definitions file not found at $appDefPath"
         return @()
@@ -688,26 +715,30 @@ function Get-AppDefinitions {
         $allApps = Get-Content -LiteralPath $appDefPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if (-not $allApps) { return @() }
 
-        $flattened = @()
+        $flattened = [System.Collections.Generic.List[object]]::new()
         foreach ($app in $allApps) {
             if (-not $app.name -or -not $app.locations) { continue }
 
-            foreach ($loc in $app.locations) {
-                if (-not $loc.env -or -not $loc.path) { continue }
+            $appCategory = if ($app.PSObject.Properties['category']) { [string]$app.category } else { '' }
 
-                $envValue = [Environment]::GetEnvironmentVariable($loc.env, 'Process')
+            foreach ($loc in $app.locations) {
+                if (-not $loc.env -or $null -eq $loc.path) { continue }
+
+                $envValue = [Environment]::GetEnvironmentVariable([string]$loc.env, 'Process')
                 if (-not $envValue) { continue }
 
-                $fullPath = Join-Path $envValue $loc.path
-                $flattened += [PSCustomObject]@{
-                    Name = $app.name
-                    Path = $fullPath
-                    Env = $loc.env
-                    Process = $app.process
-                }
+                $fullPath = Join-Path $envValue ([string]$loc.path)
+                $flattened.Add([PSCustomObject]@{
+                    Name       = [string]$app.name
+                    Path       = $fullPath
+                    Env        = [string]$loc.env
+                    Process    = $app.process
+                    Category   = $appCategory
+                    SourceFile = (Split-Path -Leaf $appDefPath)
+                })
             }
         }
-        return $flattened
+        return @($flattened)
     } catch {
         Write-Verbose "Error loading app definitions: $($_.Exception.Message)"
         return @()

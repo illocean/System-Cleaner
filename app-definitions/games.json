@@ -2,62 +2,178 @@
   {
     "name": "Steam",
     "process": "steam",
+    "category": "Game Caches",
     "locations": [
       { "env": "PROGRAMFILES(X86)", "path": "Steam/logs" },
-      { "env": "PROGRAMFILES(X86)", "path": "Steam/appcache" }
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/appcache" },
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/depotcache" },
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/shadercache" },
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/config/htmlcache" },
+      { "env": "PROGRAMFILES(X86)", "path": "Steam/config/overlayhtmlcache" }
     ]
   },
   {
     "name": "Epic Games Launcher",
     "process": "EpicGamesLauncher",
+    "category": "Game Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/Logs" },
-      { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/webcache" }
+      { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/webcache" },
+      { "env": "LOCALAPPDATA", "path": "Epic/EpicGamesLauncher/Saved/Config/Windows" },
+      { "env": "LOCALAPPDATA", "path": "Epic/UnrealEngine/Common/DerivedDataCache" }
     ]
   },
   {
     "name": "Battle.net",
     "process": "Battle.net",
+    "category": "Game Caches",
     "locations": [
       { "env": "PROGRAMDATA", "path": "Battle.net/Agent/logs" },
-      { "env": "APPDATA", "path": "Battle.net/Cache" }
+      { "env": "APPDATA", "path": "Battle.net/Cache" },
+      { "env": "APPDATA", "path": "Battle.net/Logs" }
     ]
   },
   {
     "name": "GOG Galaxy",
     "process": "GalaxyClient",
+    "category": "Game Caches",
     "locations": [
       { "env": "PROGRAMDATA", "path": "GOG.com/Galaxy/Logs" },
-      { "env": "APPDATA", "path": "GOG.com/Galaxy/Crashes" }
+      { "env": "APPDATA", "path": "GOG.com/Galaxy/Crashes" },
+      { "env": "LOCALAPPDATA", "path": "GOG.com/Galaxy/Logs" }
     ]
   },
   {
     "name": "EA App",
     "process": "EADesktop",
+    "category": "Game Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Electronic Arts/EA Desktop/logs" }
+      { "env": "LOCALAPPDATA", "path": "Electronic Arts/EA Desktop/logs" },
+      { "env": "LOCALAPPDATA", "path": "Electronic Arts/EA Desktop/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Electronic Arts/EA Desktop/CEF/Cache" }
     ]
   },
   {
     "name": "Ubisoft Connect",
     "process": "UbisoftConnect",
+    "category": "Game Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Ubisoft Game Launcher/logs" }
+      { "env": "LOCALAPPDATA", "path": "Ubisoft Game Launcher/logs" },
+      { "env": "LOCALAPPDATA", "path": "Ubisoft Game Launcher/cache" },
+      { "env": "LOCALAPPDATA", "path": "Ubisoft Game Launcher/CrashDumps" }
     ]
   },
   {
-    "name": "Minecraft",
+    "name": "Minecraft Launcher",
     "process": "Minecraft.Windows",
+    "category": "Game Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalCache/Local/Minecraft/logs" }
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalCache/Local/Minecraft/logs" },
+      { "env": "APPDATA", "path": ".minecraft/logs" },
+      { "env": "APPDATA", "path": ".minecraft/crash-reports" }
     ]
   },
   {
     "name": "Unity Editor",
-    "process": null,
+    "process": "Unity",
+    "category": "Game Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Unity/Editor/Logs" },
-      { "env": "LOCALAPPDATA", "path": "Unity/cache" }
+      { "env": "LOCALAPPDATA", "path": "Unity/cache" },
+      { "env": "LOCALAPPDATA", "path": "Unity/Editor/Cache" },
+      { "env": "APPDATA", "path": "Unity/Editor/Logs" }
+    ]
+  },
+  {
+    "name": "Unreal Engine",
+    "process": "UnrealEditor",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "UnrealEngine/Common/DerivedDataCache" },
+      { "env": "LOCALAPPDATA", "path": "UnrealEngine/Common/Logs" },
+      { "env": "APPDATA", "path": "Unreal Engine/UnrealBuildTool/Log" },
+      { "env": "APPDATA", "path": "Epic/UnrealEngine/Common/DerivedDataCache" }
+    ]
+  },
+  {
+    "name": "Godot Engine",
+    "process": "Godot",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "Godot/logs" },
+      { "env": "APPDATA", "path": "Godot/cache" },
+      { "env": "APPDATA", "path": "Godot/editor_cache" }
+    ]
+  },
+  {
+    "name": "Roblox",
+    "process": "Roblox",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Roblox/logs" },
+      { "env": "LOCALAPPDATA", "path": "Roblox/Versions/*/ClientCache" }
+    ]
+  },
+  {
+    "name": "Xbox Game Bar",
+    "process": "GameBar",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.XboxGamingOverlay_*/LocalCache" },
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.XboxGamingOverlay_*/TempState" }
+    ]
+  },
+  {
+    "name": "Xbox App",
+    "process": "XboxApp",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.GamingApp_*/LocalCache" },
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.GamingApp_*/TempState" }
+    ]
+  },
+  {
+    "name": "Riot Client",
+    "process": "RiotClientServices",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Riot Games/Riot Client/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Riot Games/Riot Client/Data" }
+    ]
+  },
+  {
+    "name": "League of Legends",
+    "process": "League of Legends",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Riot Games/League of Legends/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Riot Games/League of Legends/Config/Logs" }
+    ]
+  },
+  {
+    "name": "Valorant",
+    "process": "VALORANT-Win64-Shipping",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "VALORANT/Saved/Logs" }
+    ]
+  },
+  {
+    "name": "Overwatch 2",
+    "process": "Overwatch",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "PROGRAMFILES(X86)", "path": "Overwatch 2/Logs" }
+    ]
+  },
+  {
+    "name": "World of Warcraft",
+    "process": "Wow",
+    "category": "Game Caches",
+    "locations": [
+      { "env": "PUBLIC", "path": "Games/World of Warcraft/Logs" },
+      { "env": "PROGRAMFILES(X86)", "path": "World of Warcraft/Logs" },
+      { "env": "PUBLIC", "path": "Games/World of Warcraft/Cache" }
     ]
   }
 ]

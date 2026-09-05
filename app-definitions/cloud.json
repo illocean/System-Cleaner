@@ -2,33 +2,102 @@
   {
     "name": "OneDrive",
     "process": "OneDrive",
+    "category": "Cloud Sync",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "OneDrive/logs" },
-      { "env": "LOCALAPPDATA", "path": "OneDrive/cache" }
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneDrive/logs" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneDrive/setup/logs" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneDrive/TelemetryCache" }
+    ]
+  },
+  {
+    "name": "OneDrive (Business)",
+    "process": "OneDrive",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneDrive/logs" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneDrive/TelemetryCache" }
     ]
   },
   {
     "name": "Google Drive",
-    "process": "GoogleDriveFS",
+    "process": "Google Drive",
+    "category": "Cloud Sync",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Google/DriveFS/logs" },
-      { "env": "LOCALAPPDATA", "path": "Google/DriveFS/cache" }
+      { "env": "LOCALAPPDATA", "path": "Google/DriveFS/Cache" }
     ]
   },
   {
     "name": "Dropbox",
     "process": "Dropbox",
+    "category": "Cloud Sync",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Dropbox/cache" },
       { "env": "LOCALAPPDATA", "path": "Dropbox/logs" },
+      { "env": "LOCALAPPDATA", "path": "Dropbox/Cache" },
       { "env": "APPDATA", "path": "Dropbox/logs" }
     ]
   },
   {
-    "name": "Box Sync",
-    "process": "BoxSync",
+    "name": "Nextcloud",
+    "process": "nextcloud",
+    "category": "Cloud Sync",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Box/Box Sync/logs" }
+      { "env": "APPDATA", "path": "Nextcloud/logs" },
+      { "env": "APPDATA", "path": "Nextcloud/Cache" }
+    ]
+  },
+  {
+    "name": "MEGA",
+    "process": "MEGAsync",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "APPDATA", "path": "MEGAsync/logs" },
+      { "env": "APPDATA", "path": "MEGAsync/Cache" }
+    ]
+  },
+  {
+    "name": "pCloud",
+    "process": "pCloud Drive",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "APPDATA", "path": "pCloud Drive/logs" },
+      { "env": "APPDATA", "path": "pCloud Drive/Cache" }
+    ]
+  },
+  {
+    "name": "Sync.com",
+    "process": "Sync",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "APPDATA", "path": "Sync/logs" },
+      { "env": "APPDATA", "path": "Sync/Cache" }
+    ]
+  },
+  {
+    "name": "Tresorit",
+    "process": "Tresorit",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "APPDATA", "path": "Tresorit/logs" },
+      { "env": "APPDATA", "path": "Tresorit/Cache" }
+    ]
+  },
+  {
+    "name": "iCloud",
+    "process": "iCloudServices",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Apple/iCloud Drive/Cache" },
+      { "env": "APPDATA", "path": "Apple/iCloud/logs" }
+    ]
+  },
+  {
+    "name": "Box",
+    "process": "Box",
+    "category": "Cloud Sync",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Box/Box/logs" },
+      { "env": "LOCALAPPDATA", "path": "Box/Box/Cache" }
     ]
   }
 ]

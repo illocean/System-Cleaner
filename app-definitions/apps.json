@@ -2,6 +2,7 @@
   {
     "name": "Spotify",
     "process": "Spotify",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "Spotify/Cache" },
       { "env": "APPDATA", "path": "Spotify/Storage" },
@@ -12,6 +13,7 @@
   {
     "name": "Zoom",
     "process": "Zoom",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "Zoom/data" },
       { "env": "APPDATA", "path": "Zoom/logs" },
@@ -21,6 +23,7 @@
   {
     "name": "OBS Studio",
     "process": "obs64",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "obs-studio/logs" },
       { "env": "APPDATA", "path": "obs-studio/crashes" }
@@ -29,6 +32,7 @@
   {
     "name": "qBittorrent",
     "process": "qbittorrent",
+    "category": "App Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "qBittorrent/logs" }
     ]
@@ -36,6 +40,7 @@
   {
     "name": "TeamViewer",
     "process": "TeamViewer",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "TeamViewer/CrashDumps" },
       { "env": "APPDATA", "path": "TeamViewer/Logs" }
@@ -44,6 +49,7 @@
   {
     "name": "Stremio",
     "process": "stremio",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "Stremio/{sub:cache}" },
       { "env": "APPDATA", "path": "Stremio/{sub:temp}" },
@@ -53,6 +59,7 @@
   {
     "name": "Obsidian",
     "process": "Obsidian",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "obsidian/Cache" },
       { "env": "APPDATA", "path": "obsidian/GPUCache" }
@@ -61,6 +68,7 @@
   {
     "name": "ShareX",
     "process": "ShareX",
+    "category": "App Caches",
     "locations": [
       { "env": "USERPROFILE", "path": "Documents/ShareX/Logs" }
     ]
@@ -68,13 +76,25 @@
   {
     "name": "Roblox",
     "process": "Roblox",
+    "category": "App Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Roblox/logs" }
+      { "env": "LOCALAPPDATA", "path": "Roblox/logs" },
+      { "env": "LOCALAPPDATA", "path": "Roblox/rbx-storage" }
+    ]
+  },
+  {
+    "name": "Electron",
+    "process": null,
+    "category": "App Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "electron/Cache" },
+      { "env": "LOCALAPPDATA", "path": "electron/blob_storage" }
     ]
   },
   {
     "name": "draw.io",
     "process": "draw.io",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "draw.io/Cache" }
     ]
@@ -82,6 +102,7 @@
   {
     "name": "Windows Terminal",
     "process": "WindowsTerminal",
+    "category": "App Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Microsoft/Windows Terminal/Cache" }
     ]
@@ -89,6 +110,7 @@
   {
     "name": "Notion",
     "process": "Notion",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "Notion/Cache" },
       { "env": "APPDATA", "path": "Notion/Code Cache" },
@@ -99,6 +121,7 @@
   {
     "name": "Figma",
     "process": "Figma",
+    "category": "App Caches",
     "locations": [
       { "env": "APPDATA", "path": "Figma/Cache" }
     ]

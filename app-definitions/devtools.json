@@ -2,6 +2,7 @@
   {
     "name": "VS Code",
     "process": "Code",
+    "category": "Dev Caches",
     "locations": [
       { "env": "APPDATA", "path": "Code/Cache" },
       { "env": "APPDATA", "path": "Code/CachedData" },
@@ -10,12 +11,15 @@
       { "env": "APPDATA", "path": "Code/Code Cache" },
       { "env": "APPDATA", "path": "Code/GPUCache" },
       { "env": "APPDATA", "path": "Code/Service Worker/CacheStorage" },
-      { "env": "APPDATA", "path": "Code/logs" }
+      { "env": "APPDATA", "path": "Code/logs" },
+      { "env": "APPDATA", "path": "Code/User/History" },
+      { "env": "APPDATA", "path": "Code/User/workspaceStorage" }
     ]
   },
   {
     "name": "VS Code Insiders",
     "process": "Code - Insiders",
+    "category": "Dev Caches",
     "locations": [
       { "env": "APPDATA", "path": "Code - Insiders/Cache" },
       { "env": "APPDATA", "path": "Code - Insiders/CachedData" },
@@ -23,27 +27,67 @@
       { "env": "APPDATA", "path": "Code - Insiders/CachedExtensionVSIXs" },
       { "env": "APPDATA", "path": "Code - Insiders/Code Cache" },
       { "env": "APPDATA", "path": "Code - Insiders/GPUCache" },
-      { "env": "APPDATA", "path": "Code - Insiders/logs" }
+      { "env": "APPDATA", "path": "Code - Insiders/logs" },
+      { "env": "APPDATA", "path": "Code - Insiders/User/History" },
+      { "env": "APPDATA", "path": "Code - Insiders/User/workspaceStorage" }
+    ]
+  },
+  {
+    "name": "Cursor",
+    "process": "Cursor",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "Cursor/Cache" },
+      { "env": "APPDATA", "path": "Cursor/CachedData" },
+      { "env": "APPDATA", "path": "Cursor/CachedExtensions" },
+      { "env": "APPDATA", "path": "Cursor/Code Cache" },
+      { "env": "APPDATA", "path": "Cursor/GPUCache" },
+      { "env": "APPDATA", "path": "Cursor/logs" }
+    ]
+  },
+  {
+    "name": "Windsurf",
+    "process": "Windsurf",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "Windsurf/Cache" },
+      { "env": "APPDATA", "path": "Windsurf/CachedData" },
+      { "env": "APPDATA", "path": "Windsurf/Code Cache" },
+      { "env": "APPDATA", "path": "Windsurf/GPUCache" },
+      { "env": "APPDATA", "path": "Windsurf/logs" }
     ]
   },
   {
     "name": "npm-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "npm-cache" }
+      { "env": "LOCALAPPDATA", "path": "npm-cache" },
+      { "env": "APPDATA", "path": "npm-cache" }
     ]
   },
   {
     "name": "pnpm-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "pnpm-cache" },
       { "env": "LOCALAPPDATA", "path": "pnpm-state" }
     ]
   },
   {
+    "name": "yarn-cache",
+    "process": null,
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Yarn/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Yarn/Berry/cache" }
+    ]
+  },
+  {
     "name": "pip-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "pip/cache" }
     ]
@@ -51,6 +95,7 @@
   {
     "name": "uv-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "uv/cache" }
     ]
@@ -58,6 +103,7 @@
   {
     "name": "NuGet-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "NuGet/v3-cache" },
       { "env": "LOCALAPPDATA", "path": "NuGet/plugins-cache" },
@@ -67,26 +113,23 @@
   {
     "name": "Composer-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Composer/cache" }
     ]
   },
   {
-    "name": "Yarn-cache",
-    "process": null,
-    "locations": [
-      { "env": "LOCALAPPDATA", "path": "Yarn/Cache" },
-      { "env": "LOCALAPPDATA", "path": "Yarn/Berry/cache" }
-    ]
-  },
-  {
     "name": "Go-mod-cache",
     "process": null,
-    "locations": []
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": "go/pkg/mod" }
+    ]
   },
   {
     "name": "Cargo-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "USERPROFILE", "path": ".cargo/registry/cache" },
       { "env": "USERPROFILE", "path": ".cargo/git/db" }
@@ -95,6 +138,7 @@
   {
     "name": "Bun-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "USERPROFILE", "path": ".bun/install/cache" }
     ]
@@ -102,6 +146,7 @@
   {
     "name": "Dart-pub-cache",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Pub/Cache" }
     ]
@@ -109,13 +154,16 @@
   {
     "name": "Docker-tmp",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
-      { "env": "APPDATA", "path": "Docker/tmp" }
+      { "env": "APPDATA", "path": "Docker/tmp" },
+      { "env": "LOCALAPPDATA", "path": "Docker/tmp" }
     ]
   },
   {
     "name": "Prisma-engines",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "prisma-nodejs" }
     ]
@@ -123,6 +171,7 @@
   {
     "name": "checkpoint-nodejs",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "checkpoint-nodejs" }
     ]
@@ -130,6 +179,7 @@
   {
     "name": "firebase-heartbeat",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "firebase-heartbeat" }
     ]
@@ -137,6 +187,7 @@
   {
     "name": "dotnet-telemetry",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
       { "env": "USERPROFILE", "path": ".dotnet/TelemetryFallbackDir" }
     ]
@@ -144,8 +195,163 @@
   {
     "name": "JetBrains",
     "process": null,
+    "category": "Dev Caches",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "JetBrains/{product}" }
+      { "env": "LOCALAPPDATA", "path": "JetBrains/{product}" },
+      { "env": "APPDATA", "path": "JetBrains/{product}" }
+    ]
+  },
+  {
+    "name": "IntelliJ IDEA",
+    "process": "idea64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/IntelliJIdea*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/IntelliJIdea*/logs" },
+      { "env": "APPDATA", "path": "JetBrains/IntelliJIdea*/cache" }
+    ]
+  },
+  {
+    "name": "PyCharm",
+    "process": "pycharm64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/PyCharm*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/PyCharm*/logs" }
+    ]
+  },
+  {
+    "name": "WebStorm",
+    "process": "webstorm64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/WebStorm*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/WebStorm*/logs" }
+    ]
+  },
+  {
+    "name": "Rider",
+    "process": "rider64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/Rider*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/Rider*/logs" }
+    ]
+  },
+  {
+    "name": "DataGrip",
+    "process": "datagrip64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/DataGrip*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/DataGrip*/logs" }
+    ]
+  },
+  {
+    "name": "CLion",
+    "process": "clion64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/CLion*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/CLion*/logs" }
+    ]
+  },
+  {
+    "name": "GoLand",
+    "process": "goland64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/GoLand*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/GoLand*/logs" }
+    ]
+  },
+  {
+    "name": "PhpStorm",
+    "process": "phpstorm64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/PhpStorm*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/PhpStorm*/logs" }
+    ]
+  },
+  {
+    "name": "RubyMine",
+    "process": "rubymine64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "JetBrains/RubyMine*/cache" },
+      { "env": "LOCALAPPDATA", "path": "JetBrains/RubyMine*/logs" }
+    ]
+  },
+  {
+    "name": "Android Studio",
+    "process": "studio64",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Google/AndroidStudio*/cache" },
+      { "env": "LOCALAPPDATA", "path": "Google/AndroidStudio*/logs" }
+    ]
+  },
+  {
+    "name": "Visual Studio",
+    "process": "devenv",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/VisualStudio/*/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/VisualStudio/*/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/VisualStudio/*/Temp" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/VisualStudio/*/ComponentModelCache" }
+    ]
+  },
+  {
+    "name": "Git",
+    "process": "git",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Git/cache" },
+      { "env": "LOCALAPPDATA", "path": "Git/tmp" }
+    ]
+  },
+  {
+    "name": "GitHub Desktop",
+    "process": "GitHubDesktop",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "GitHubDesktop/logs" },
+      { "env": "LOCALAPPDATA", "path": "GitHubDesktop/Cache" }
+    ]
+  },
+  {
+    "name": "GitKraken",
+    "process": "GitKraken",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "GitKraken/Cache" },
+      { "env": "APPDATA", "path": "GitKraken/Code Cache" },
+      { "env": "APPDATA", "path": "GitKraken/GPUCache" },
+      { "env": "APPDATA", "path": "GitKraken/logs" }
+    ]
+  },
+  {
+    "name": "Postman",
+    "process": "Postman",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "Postman/Cache" },
+      { "env": "APPDATA", "path": "Postman/Code Cache" },
+      { "env": "APPDATA", "path": "Postman/GPUCache" },
+      { "env": "APPDATA", "path": "Postman/logs" }
+    ]
+  },
+  {
+    "name": "Insomnia",
+    "process": "Insomnia",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "APPDATA", "path": "Insomnia/Cache" },
+      { "env": "APPDATA", "path": "Insomnia/Code Cache" },
+      { "env": "APPDATA", "path": "Insomnia/GPUCache" },
+      { "env": "APPDATA", "path": "Insomnia/logs" }
     ]
   }
 ]

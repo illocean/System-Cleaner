@@ -2,48 +2,203 @@
   {
     "name": "Adobe Photoshop",
     "process": "Photoshop",
+    "category": "Creative Apps",
     "locations": [
       { "env": "APPDATA", "path": "Adobe/Adobe Photoshop logs" },
-      { "env": "LOCALAPPDATA", "path": "Temp/Adobe Photoshop" }
+      { "env": "LOCALAPPDATA", "path": "Temp/Adobe Photoshop" },
+      { "env": "APPDATA", "path": "Adobe/Adobe Photoshop * /Cache" },
+      { "env": "APPDATA", "path": "Adobe/Adobe Photoshop * /Temp" }
     ]
   },
   {
     "name": "Adobe Premiere Pro",
     "process": "Premiere Pro",
+    "category": "Creative Apps",
     "locations": [
       { "env": "APPDATA", "path": "Adobe/Premiere Pro logs" },
       { "env": "LOCALAPPDATA", "path": "Adobe/Premiere Pro/Media Cache" },
-      { "env": "LOCALAPPDATA", "path": "Temp/Premiere Pro" }
+      { "env": "LOCALAPPDATA", "path": "Temp/Premiere Pro" },
+      { "env": "APPDATA", "path": "Adobe/Premiere Pro * /Cache" },
+      { "env": "APPDATA", "path": "Adobe/Premiere Pro * /Temp" }
     ]
   },
   {
     "name": "Adobe After Effects",
     "process": "AfterFX",
+    "category": "Creative Apps",
     "locations": [
       { "env": "APPDATA", "path": "Adobe/After Effects logs" },
-      { "env": "LOCALAPPDATA", "path": "Temp/After Effects" }
+      { "env": "LOCALAPPDATA", "path": "Temp/After Effects" },
+      { "env": "APPDATA", "path": "Adobe/After Effects * /Cache" },
+      { "env": "APPDATA", "path": "Adobe/After Effects * /Temp" }
     ]
   },
   {
     "name": "DaVinci Resolve",
     "process": "Resolve",
+    "category": "Creative Apps",
     "locations": [
       { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Cache" },
-      { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Logs" }
+      { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Logs" },
+      { "env": "APPDATA", "path": "Blackmagic Design/DaVinci Resolve/Support/Logs" }
     ]
   },
   {
     "name": "VLC Media Player",
     "process": "vlc",
+    "category": "Creative Apps",
     "locations": [
-      { "env": "APPDATA", "path": "vlc/cache" }
+      { "env": "APPDATA", "path": "vlc/cache" },
+      { "env": "APPDATA", "path": "vlc/logs" }
     ]
   },
   {
     "name": "Audacity",
     "process": "Audacity",
+    "category": "Creative Apps",
     "locations": [
-      { "env": "APPDATA", "path": "Audacity/Cache" }
+      { "env": "APPDATA", "path": "Audacity/Cache" },
+      { "env": "APPDATA", "path": "Audacity/logs" }
+    ]
+  },
+  {
+    "name": "OBS Studio",
+    "process": "obs64",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "obs-studio/logs" },
+      { "env": "APPDATA", "path": "obs-studio/crashes" },
+      { "env": "APPDATA", "path": "obs-studio/cache" }
+    ]
+  },
+  {
+    "name": "Blender",
+    "process": "blender",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "Blender Foundation/Blender/*/cache" },
+      { "env": "LOCALAPPDATA", "path": "Blender Foundation/Blender/*/cache" },
+      { "env": "APPDATA", "path": "Blender Foundation/Blender/*/logs" }
+    ]
+  },
+  {
+    "name": "Paint.NET",
+    "process": "PaintDotNet",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Paint.NET/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Paint.NET/Logs" }
+    ]
+  },
+  {
+    "name": "GIMP",
+    "process": "gimp-2.10",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "GIMP/2.10/cache" },
+      { "env": "APPDATA", "path": "GIMP/2.10/logs" }
+    ]
+  },
+  {
+    "name": "Inkscape",
+    "process": "inkscape",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "inkscape/cache" },
+      { "env": "APPDATA", "path": "inkscape/logs" }
+    ]
+  },
+  {
+    "name": "Krita",
+    "process": "krita",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "krita/cache" },
+      { "env": "APPDATA", "path": "krita/logs" }
+    ]
+  },
+  {
+    "name": "Affinity Photo",
+    "process": "AffinityPhoto2",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Affinity/Photo 2/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Affinity/Photo 2/Logs" }
+    ]
+  },
+  {
+    "name": "Affinity Designer",
+    "process": "AffinityDesigner2",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Affinity/Designer 2/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Affinity/Designer 2/Logs" }
+    ]
+  },
+  {
+    "name": "Affinity Publisher",
+    "process": "AffinityPublisher2",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Affinity/Publisher 2/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Affinity/Publisher 2/Logs" }
+    ]
+  },
+  {
+    "name": "Figma",
+    "process": "Figma",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "Figma/Cache" },
+      { "env": "APPDATA", "path": "Figma/Code Cache" },
+      { "env": "APPDATA", "path": "Figma/GPUCache" },
+      { "env": "APPDATA", "path": "Figma/logs" }
+    ]
+  },
+  {
+    "name": "Canva",
+    "process": "Canva",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Canva/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Canva/Code Cache" },
+      { "env": "LOCALAPPDATA", "path": "Canva/GPUCache" },
+      { "env": "LOCALAPPDATA", "path": "Canva/logs" }
+    ]
+  },
+  {
+    "name": "ScreenToGif",
+    "process": "ScreenToGif",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "ScreenToGif/Logs" },
+      { "env": "APPDATA", "path": "ScreenToGif/Cache" }
+    ]
+  },
+  {
+    "name": "ShareX",
+    "process": "ShareX",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "USERPROFILE", "path": "Documents/ShareX/Logs" },
+      { "env": "APPDATA", "path": "ShareX/Logs" }
+    ]
+  },
+  {
+    "name": "HandBrake",
+    "process": "HandBrake",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "HandBrake/logs" },
+      { "env": "APPDATA", "path": "HandBrake/cache" }
+    ]
+  },
+  {
+    "name": "FFmpeg",
+    "process": "ffmpeg",
+    "category": "Creative Apps",
+    "locations": [
+      { "env": "APPDATA", "path": "ffmpeg/logs" }
     ]
   }
 ]

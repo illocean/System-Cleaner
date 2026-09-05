@@ -2,6 +2,7 @@
   {
     "name": "Discord",
     "process": "discord",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "discord/Cache" },
       { "env": "APPDATA", "path": "discord/Code Cache" },
@@ -12,6 +13,7 @@
   {
     "name": "Discord Canary",
     "process": "discordcanary",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "discordcanary/Cache" },
       { "env": "APPDATA", "path": "discordcanary/Code Cache" },
@@ -22,6 +24,7 @@
   {
     "name": "Discord PTB",
     "process": "discordptb",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "discordptb/Cache" },
       { "env": "APPDATA", "path": "discordptb/Code Cache" },
@@ -32,6 +35,7 @@
   {
     "name": "Slack",
     "process": "slack",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "Slack/Cache" },
       { "env": "APPDATA", "path": "Slack/Service Worker/CacheStorage" },
@@ -43,6 +47,7 @@
   {
     "name": "Teams",
     "process": "teams",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "Microsoft/Teams/Cache" },
       { "env": "APPDATA", "path": "Microsoft/Teams/Code Cache" },
@@ -53,8 +58,18 @@
     ]
   },
   {
+    "name": "Teams (New)",
+    "process": "ms-teams",
+    "category": "Productivity",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Packages/MSTeams_*/LocalCache" },
+      { "env": "LOCALAPPDATA", "path": "Packages/MSTeams_*/TempState" }
+    ]
+  },
+  {
     "name": "WhatsApp",
     "process": "whatsapp",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "WhatsApp/Cache" },
       { "env": "APPDATA", "path": "WhatsApp/Code Cache" },
@@ -65,6 +80,7 @@
   {
     "name": "Telegram",
     "process": "telegram",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "Telegram Desktop/tdata/{sub:cache}" }
     ]
@@ -72,10 +88,63 @@
   {
     "name": "Viber",
     "process": "viber",
+    "category": "Productivity",
     "locations": [
       { "env": "APPDATA", "path": "ViberPC/cache" },
       { "env": "LOCALAPPDATA", "path": "Viber/cache" },
       { "env": "LOCALAPPDATA", "path": "Viber Media S.a r.l/cache" }
+    ]
+  },
+  {
+    "name": "Signal",
+    "process": "Signal",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Signal/Cache" },
+      { "env": "APPDATA", "path": "Signal/Code Cache" },
+      { "env": "APPDATA", "path": "Signal/GPUCache" },
+      { "env": "APPDATA", "path": "Signal/logs" }
+    ]
+  },
+  {
+    "name": "Skype",
+    "process": "Skype",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Microsoft/Skype for Desktop/Cache" },
+      { "env": "APPDATA", "path": "Microsoft/Skype for Desktop/Code Cache" },
+      { "env": "APPDATA", "path": "Microsoft/Skype for Desktop/GPUCache" },
+      { "env": "APPDATA", "path": "Microsoft/Skype for Desktop/logs" }
+    ]
+  },
+  {
+    "name": "Element",
+    "process": "Element",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Element/Cache" },
+      { "env": "APPDATA", "path": "Element/Code Cache" },
+      { "env": "APPDATA", "path": "Element/GPUCache" }
+    ]
+  },
+  {
+    "name": "Mattermost",
+    "process": "Mattermost",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Mattermost/Cache" },
+      { "env": "APPDATA", "path": "Mattermost/Code Cache" },
+      { "env": "APPDATA", "path": "Mattermost/GPUCache" },
+      { "env": "APPDATA", "path": "Mattermost/logs" }
+    ]
+  },
+  {
+    "name": "Thunderbird",
+    "process": "thunderbird",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Thunderbird/Profiles/{profile}/cache2" },
+      { "env": "APPDATA", "path": "Thunderbird/Profiles/{profile}/startupCache" }
     ]
   }
 ]

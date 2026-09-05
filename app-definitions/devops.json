@@ -1,59 +1,153 @@
 [
   {
+    "name": "Docker Desktop",
+    "process": "Docker Desktop",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Docker/logs" },
+      { "env": "APPDATA", "path": "Docker/logs" },
+      { "env": "LOCALAPPDATA", "path": "Docker/cli-plugins" }
+    ]
+  },
+  {
+    "name": "Docker (WSL2)",
+    "process": "docker",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Docker/tmp" },
+      { "env": "USERPROFILE", "path": ".docker/cache" }
+    ]
+  },
+  {
+    "name": "Kubernetes (kubectl)",
+    "process": "kubectl",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".kube/cache" },
+      { "env": "USERPROFILE", "path": ".kube/http-cache" }
+    ]
+  },
+  {
+    "name": "Helm",
+    "process": "helm",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".helm/cache" },
+      { "env": "APPDATA", "path": "helm/cache" }
+    ]
+  },
+  {
     "name": "Terraform",
-    "process": null,
+    "process": "terraform",
+    "category": "DevOps Tools",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "terraform.d/plugin-cache" }
+      { "env": "APPDATA", "path": "terraform.d/plugin-cache" }
     ]
   },
   {
-    "name": "Gradle",
-    "process": null,
+    "name": "Ansible",
+    "process": "ansible",
+    "category": "DevOps Tools",
     "locations": [
-      { "env": "USERPROFILE", "path": ".gradle/caches" }
-    ]
-  },
-  {
-    "name": "Maven",
-    "process": null,
-    "locations": [
-      { "env": "USERPROFILE", "path": ".m2/repository" }
-    ]
-  },
-  {
-    "name": "GitHub CLI",
-    "process": "gh",
-    "locations": [
-      { "env": "LOCALAPPDATA", "path": "github-cli" }
-    ]
-  },
-  {
-    "name": "AWS CLI",
-    "process": null,
-    "locations": [
-      { "env": "USERPROFILE", "path": ".aws/cli/cache" }
-    ]
-  },
-  {
-    "name": "gcloud SDK",
-    "process": null,
-    "locations": [
-      { "env": "APPDATA", "path": "gcloud/logs" },
-      { "env": "APPDATA", "path": "gcloud/cache" }
+      { "env": "USERPROFILE", "path": ".ansible/cache" },
+      { "env": "APPDATA", "path": "ansible/cache" }
     ]
   },
   {
     "name": "Vagrant",
-    "process": "Vagrant",
+    "process": "vagrant",
+    "category": "DevOps Tools",
     "locations": [
-      { "env": "USERPROFILE", "path": ".vagrant.d/logs" }
+      { "env": "USERPROFILE", "path": ".vagrant.d/cache" },
+      { "env": "USERPROFILE", "path": ".vagrant.d/tmp" }
     ]
   },
   {
     "name": "Packer",
     "process": "packer",
+    "category": "DevOps Tools",
     "locations": [
-      { "env": "APPDATA", "path": "packer" }
+      { "env": "APPDATA", "path": "packer/cache" }
+    ]
+  },
+  {
+    "name": "AWS CLI",
+    "process": "aws",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".aws/cache" },
+      { "env": "APPDATA", "path": "aws/cache" }
+    ]
+  },
+  {
+    "name": "Azure CLI",
+    "process": "az",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".azure/cache" },
+      { "env": "APPDATA", "path": "azure/cache" }
+    ]
+  },
+  {
+    "name": "Google Cloud SDK",
+    "process": "gcloud",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "APPDATA", "path": "gcloud/cache" },
+      { "env": "USERPROFILE", "path": ".config/gcloud/cache" }
+    ]
+  },
+  {
+    "name": "GitHub CLI",
+    "process": "gh",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "APPDATA", "path": "gh/cache" },
+      { "env": "USERPROFILE", "path": ".config/gh/cache" }
+    ]
+  },
+  {
+    "name": "GitLab CLI",
+    "process": "glab",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "APPDATA", "path": "glab/cache" }
+    ]
+  },
+  {
+    "name": "Chocolatey",
+    "process": "choco",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "chocolatey/cache" },
+      { "env": "PROGRAMDATA", "path": "chocolatey/cache" },
+      { "env": "LOCALAPPDATA", "path": "chocolatey/logs" }
+    ]
+  },
+  {
+    "name": "Scoop",
+    "process": "scoop",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "USERPROFILE", "path": "scoop/cache" },
+      { "env": "USERPROFILE", "path": "scoop/logs" }
+    ]
+  },
+  {
+    "name": "Winget",
+    "process": "winget",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/WinGet/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/WinGet/Logs" }
+    ]
+  },
+  {
+    "name": "NVIDIA Container Toolkit",
+    "process": "nvidia-container-runtime",
+    "category": "DevOps Tools",
+    "locations": [
+      { "env": "PROGRAMDATA", "path": "NVIDIA/nvidia-container-runtime/logs" }
     ]
   }
 ]

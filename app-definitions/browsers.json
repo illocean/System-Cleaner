@@ -2,6 +2,7 @@
   {
     "name": "Chrome",
     "process": "chrome",
+    "category": "Browser Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Cache" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Code Cache" },
@@ -22,6 +23,7 @@
   {
     "name": "Edge",
     "process": "msedge",
+    "category": "Browser Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Cache" },
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Code Cache" },
@@ -38,6 +40,7 @@
   {
     "name": "Brave",
     "process": "brave",
+    "category": "Browser Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Cache" },
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Code Cache" },
@@ -52,6 +55,7 @@
   {
     "name": "Firefox",
     "process": "firefox",
+    "category": "Browser Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/cache2" },
       { "env": "LOCALAPPDATA", "path": "Mozilla/Firefox/Profiles/{profile}/startupCache" },
@@ -63,6 +67,7 @@
   {
     "name": "Opera",
     "process": "opera",
+    "category": "Browser Caches",
     "locations": [
       { "env": "APPDATA", "path": "Opera Software/Opera Stable/{profile}/Cache" },
       { "env": "APPDATA", "path": "Opera Software/Opera Stable/{profile}/Code Cache" },
@@ -72,6 +77,7 @@
   {
     "name": "Vivaldi",
     "process": "vivaldi",
+    "category": "Browser Caches",
     "locations": [
       { "env": "LOCALAPPDATA", "path": "Vivaldi/User Data/{profile}/Cache" },
       { "env": "LOCALAPPDATA", "path": "Vivaldi/User Data/{profile}/Code Cache" },

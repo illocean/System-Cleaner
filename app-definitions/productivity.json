@@ -1,54 +1,135 @@
 [
   {
+    "name": "Notion",
+    "process": "Notion",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Notion/Cache" },
+      { "env": "APPDATA", "path": "Notion/Code Cache" },
+      { "env": "APPDATA", "path": "Notion/GPUCache" },
+      { "env": "APPDATA", "path": "Notion/blob_storage" },
+      { "env": "APPDATA", "path": "Notion/logs" }
+    ]
+  },
+  {
+    "name": "Obsidian",
+    "process": "Obsidian",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "obsidian/Cache" },
+      { "env": "APPDATA", "path": "obsidian/Code Cache" },
+      { "env": "APPDATA", "path": "obsidian/GPUCache" },
+      { "env": "APPDATA", "path": "obsidian/logs" }
+    ]
+  },
+  {
+    "name": "Logseq",
+    "process": "Logseq",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Logseq/Cache" },
+      { "env": "APPDATA", "path": "Logseq/Code Cache" },
+      { "env": "APPDATA", "path": "Logseq/GPUCache" },
+      { "env": "APPDATA", "path": "Logseq/logs" }
+    ]
+  },
+  {
+    "name": "Evernote",
+    "process": "Evernote",
+    "category": "Productivity",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Evernote/Evernote/Logs" },
+      { "env": "LOCALAPPDATA", "path": "Evernote/Evernote/Cache" }
+    ]
+  },
+  {
+    "name": "OneNote",
+    "process": "ONENOTE",
+    "category": "Productivity",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneNote/16.0/Cache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/OneNote/logs" }
+    ]
+  },
+  {
+    "name": "Todoist",
+    "process": "Todoist",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Todoist/Cache" },
+      { "env": "APPDATA", "path": "Todoist/Code Cache" },
+      { "env": "APPDATA", "path": "Todoist/GPUCache" },
+      { "env": "APPDATA", "path": "Todoist/logs" }
+    ]
+  },
+  {
+    "name": "Microsoft To Do",
+    "process": "Microsoft.ToDo",
+    "category": "Productivity",
+    "locations": [
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.Todos_*/LocalCache" },
+      { "env": "LOCALAPPDATA", "path": "Packages/Microsoft.Todos_*/TempState" }
+    ]
+  },
+  {
+    "name": "Trello",
+    "process": "Trello",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Trello/Cache" },
+      { "env": "APPDATA", "path": "Trello/Code Cache" },
+      { "env": "APPDATA", "path": "Trello/GPUCache" },
+      { "env": "APPDATA", "path": "Trello/logs" }
+    ]
+  },
+  {
+    "name": "Miro",
+    "process": "Miro",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Miro/Cache" },
+      { "env": "APPDATA", "path": "Miro/Code Cache" },
+      { "env": "APPDATA", "path": "Miro/GPUCache" },
+      { "env": "APPDATA", "path": "Miro/logs" }
+    ]
+  },
+  {
+    "name": "Figma",
+    "process": "Figma",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Figma/Cache" },
+      { "env": "APPDATA", "path": "Figma/Code Cache" },
+      { "env": "APPDATA", "path": "Figma/GPUCache" },
+      { "env": "APPDATA", "path": "Figma/logs" }
+    ]
+  },
+  {
+    "name": "Calibre",
+    "process": "calibre",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "calibre/logs" },
+      { "env": "APPDATA", "path": "calibre/cache" }
+    ]
+  },
+  {
+    "name": "Zotero",
+    "process": "zotero",
+    "category": "Productivity",
+    "locations": [
+      { "env": "APPDATA", "path": "Zotero/Cache" },
+      { "env": "APPDATA", "path": "Zotero/logs" }
+    ]
+  },
+  {
     "name": "Microsoft Office",
-    "process": null,
+    "process": "WINWORD",
+    "category": "Productivity",
     "locations": [
-      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/16.0/logs" },
-      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/16.0/OfficeFileCache" }
-    ]
-  },
-  {
-    "name": "1Password",
-    "process": "1Password",
-    "locations": [
-      { "env": "LOCALAPPDATA", "path": "1Password/logs" },
-      { "env": "LOCALAPPDATA", "path": "1Password/cache" }
-    ]
-  },
-  {
-    "name": "Bitwarden",
-    "process": "Bitwarden",
-    "locations": [
-      { "env": "LOCALAPPDATA", "path": "Bitwarden/logs" }
-    ]
-  },
-  {
-    "name": "Postman",
-    "process": "Postman",
-    "locations": [
-      { "env": "APPDATA", "path": "Postman/logs" },
-      { "env": "LOCALAPPDATA", "path": "Postman/cache" }
-    ]
-  },
-  {
-    "name": "Insomnia",
-    "process": "Insomnia",
-    "locations": [
-      { "env": "APPDATA", "path": "Insomnia/logs" }
-    ]
-  },
-  {
-    "name": "LibreOffice",
-    "process": "soffice",
-    "locations": [
-      { "env": "APPDATA", "path": "LibreOffice/cache" }
-    ]
-  },
-  {
-    "name": "AutoHotkey",
-    "process": "AutoHotkey",
-    "locations": [
-      { "env": "LOCALAPPDATA", "path": "AutoHotkey/logs" }
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/16.0/OfficeFileCache" },
+      { "env": "LOCALAPPDATA", "path": "Microsoft/Office/UnsavedFiles" },
+      { "env": "APPDATA", "path": "Microsoft/Office/Recent" }
     ]
   }
 ]

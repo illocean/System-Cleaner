@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Python Virtual Environments (.local)",
+    "process": "python",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".local" },
+      { "env": "USERPROFILE", "path": ".virtualenvs" },
+      { "env": "LOCALAPPDATA", "path": "pipx" }
+    ]
+  },
+  {
+    "name": "Tool Caches (.cache)",
+    "process": null,
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".cache" }
+    ]
+  },
+  {
+    "name": "Scoop Package Manager",
+    "process": "scoop",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": "scoop/cache" }
+    ]
+  },
+  {
+    "name": "Rust Cargo Build Cache",
+    "process": "cargo",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".cargo/registry" },
+      { "env": "USERPROFILE", "path": ".cargo/target" }
+    ]
+  },
+  {
+    "name": "Android SDK Caches",
+    "process": "adb",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".android/cache" }
+    ]
+  },
+  {
+    "name": "Go Module Cache",
+    "process": "go",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": "go/pkg/mod" },
+      { "env": "USERPROFILE", "path": "go/pkg/sumdb" }
+    ]
+  },
+  {
+    "name": "Bun Cache",
+    "process": "bun",
+    "category": "Dev Caches",
+    "locations": [
+      { "env": "USERPROFILE", "path": ".bun/install/cache" },
+      { "env": "LOCALAPPDATA", "path": "bun/install/cache" }
+    ]
+  }
+]

@@ -199,16 +199,42 @@ if (-not $SkipBootstrap) {
     Clear-ExpiredQuarantine | Out-Null
 
     switch ($Mode) {
-        'Standard'   { Show-RunSummary (Invoke-CleanupRun -Mode 'Standard') }
-        'Aggressive' { Show-RunSummary (Invoke-CleanupRun -Mode 'Aggressive') }
-        'Preview'    { Show-RunSummary (Invoke-CleanupRun -Mode 'Preview' -WhatIf) }
+        'Standard'   { 
+            Show-RunSummary (Invoke-CleanupRun -Mode 'Standard')
+            Write-Host ''
+            [void](Read-Host '[Press Enter to return to Menu]')
+        }
+        'Aggressive' { 
+            Show-RunSummary (Invoke-CleanupRun -Mode 'Aggressive')
+            Write-Host ''
+            [void](Read-Host '[Press Enter to return to Menu]')
+        }
+        'Preview'    { 
+            Show-RunSummary (Invoke-CleanupRun -Mode 'Preview' -WhatIf)
+            Write-Host ''
+            [void](Read-Host '[Press Enter to return to Menu]')
+        }
         'Scan'       {
             Show-Header
             $script:IsPreview = $false
             Start-Step 'Orphan scan'
-            $o = Invoke-OrphanScan
-            Show-OrphanScanResults $o
+            $o = Find-OrphanFolders
+            Show-OrphanScanResults -ScanResult @{ Findings = @($o) }
+            
+            # Show summary of scan results
+            $totalFindings = @($o).Count
+            $tier1Count = @($o | Where-Object { $_.Tier -eq 'Tier1' }).Count
+            $tier2Count = @($o | Where-Object { $_.Tier -eq 'Tier2' }).Count
+            $tier3Count = @($o | Where-Object { $_.Tier -eq 'Tier3' }).Count
+            
             Write-Host ''
+            Write-Host '=== SCAN SUMMARY ===' -ForegroundColor Cyan
+            Write-Host ("Total findings: {0}" -f $totalFindings) -ForegroundColor White
+            Write-Host ("  Tier 1 (Safe): {0}" -f $tier1Count) -ForegroundColor Green
+            Write-Host ("  Tier 2 (Review): {0}" -f $tier2Count) -ForegroundColor Yellow
+            Write-Host ("  Tier 3 (Manual): {0}" -f $tier3Count) -ForegroundColor Red
+            Write-Host ''
+            
             [void](Read-Host '[Press Enter to return to Menu]')
         }
         'Health'     {

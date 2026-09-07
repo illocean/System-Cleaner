@@ -4,5 +4,8 @@
   "orphanThresholdDays": 30,
   "logRetention": 7,
   "parallel": true,
-  "uiStyle": "auto"
+  "uiStyle": "auto",
+  "quarantineRoot": "",
+  "quarantineRetentionDays": 14,
+  "runspaceThrottle": 0
 }

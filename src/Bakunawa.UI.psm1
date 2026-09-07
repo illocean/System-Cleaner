@@ -241,7 +241,18 @@ function Show-Header {
     $ml = if($script:CurrentModeName -eq 'Menu'){'INTERACTIVE'}else{$script:CurrentModeName.ToUpperInvariant()}
     $lr = if($script:LastRunSummary){"$($script:LastRunSummary.Mode) | $($script:LastRunSummary.DurationSeconds)s | $(Format-FileSize $script:LastRunSummary.TotalFreed)"}else{'none yet'}
     $protected = Format-CompactList -Items ($script:ExcludedPaths | Sort-Object) -MaxItems 3
-    $runBar = if($script:CurrentModeName -eq 'Menu'){'[..................] idle'}else{New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 18}
+    # Dynamic run bar that reflects current mode and progress
+    if($script:CurrentModeName -eq 'Menu'){
+        $runBar = '[..................] idle'
+    } elseif ($script:CurrentModeName -eq 'Scan') {
+        # For scan mode, show a pulsing indicator since it's a single long-running operation
+        $pulseFrames = @('|','/','-','\')
+        $pulseIndex = [Math]::Floor((Get-Date).Millisecond / 250) % 4
+        $runBar = "[${pulseFrames[$pulseIndex]}-----------------] scanning"
+    } else {
+        # For cleanup modes, show step progress
+        $runBar = New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 18
+    }
     $healthLine = 'Health     : not available'
     try {
         $h = Get-HealthScore -Fast
@@ -321,7 +332,7 @@ $choice = $choice.Trim().ToUpperInvariant()
             '1' { Invoke-CleanupRun 'Standard';   Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '4' { Show-Header; $script:IsPreview=$false; Start-Step 'Orphan folder scan'; $o=Find-OrphanFolders -InteractiveDelete; Finish-Step "Orphan check complete"; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
+            '4' { Show-Header; $script:IsPreview=$false; Start-Step 'Orphan folder scan'; $o=Find-OrphanFolders; Finish-Step 'Orphan check complete'; Show-OrphanScanResults -ScanResult @{ Findings = @($o) }; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
             '5' { Show-HealthDetail; [void](Read-Host '[Press Enter to return to Menu]') }
             'Q' { return }
             default { Write-Host 'Invalid.' -ForegroundColor Yellow; Start-Sleep -Milliseconds 500 }

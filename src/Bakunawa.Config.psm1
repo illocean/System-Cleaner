@@ -1,4 +1,4 @@
-# Bakunawa.Config.psm1
+﻿# Bakunawa.Config.psm1
 # Configuration management module for Bakunawa cleaner
 # Handles user config files, validation, defaults, and integration
 
@@ -151,7 +151,7 @@ function Get-DefaultConfig {
             "Recycle Bin" = @{ enabled = $false; riskTier = "Confirm"; description = "Empty recycle bin (requires confirmation)" }
             "Log Files" = @{ enabled = $false; riskTier = "Moderate"; description = "System and application log files" }
             "Empty/Stale Folders" = @{ enabled = $true; riskTier = "Safe"; description = "Remove empty and stale directories" }
-            "Orphan Scan" = @{ enabled = $false; riskTier = "Confirm"; description = "Find and remove orphaned application folders" }
+            "Orphan Scan" = @{ enabled = $true; riskTier = "Confirm"; description = "Scan C:; clean eligible stale temp items; review caches and possible app leftovers" }
         }
         riskTiers = @{
             "Safe" = @{ requiresConfirmation = $false; requiresPreview = $false; description = "No user data risk; always safe to delete" }
@@ -165,6 +165,10 @@ function Get-DefaultConfig {
             time = "02:00"
             notifyOnCompletion = $true
             logResults = $true
+        }
+        scanSettings = @{
+            roots = @()
+            minAgeDays = 30
         }
         behaviorSettings = @{
             quarantineBeforeDelete = $true
@@ -224,6 +228,15 @@ function Test-ConfigSchema {
     }
     
     # Validate risk tiers
+    if ($Config.scanSettings) {
+        $age = 0
+        if (-not [int]::TryParse([string]$Config.scanSettings.minAgeDays, [ref]$age) -or $age -lt 1 -or $age -gt 3650) {
+            $errors += 'scanSettings.minAgeDays must be between 1 and 3650'
+        }
+        if ($null -ne $Config.scanSettings.roots -and $Config.scanSettings.roots -isnot [array]) {
+            $errors += 'scanSettings.roots must be an array'
+        }
+    }
     if ($Config.riskTiers) {
         foreach ($tierName in $Config.riskTiers.Keys) {
             $tier = $Config.riskTiers[$tierName]

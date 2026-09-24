@@ -7,7 +7,7 @@ function Get-QuarantineRoot {
     [CmdletBinding()]
     param()
     if ($script:QuarantineRoot) { return $script:QuarantineRoot }
-    $cfg = Get-UserConfig -UseDefault
+    $cfg = Get-UserConfig
     $customRoot = if ($cfg.behaviorSettings.quarantineBeforeDelete) { $cfg.quarantineRoot } else { $null }
     if ($customRoot) {
         $resolved = Resolve-FullPath $customRoot
@@ -27,7 +27,7 @@ function Get-QuarantineRoot {
 function Get-QuarantineRetentionDays {
     [CmdletBinding()]
     param()
-    $cfg = Get-UserConfig -UseDefault
+    $cfg = Get-UserConfig
     $retention = $cfg.behaviorSettings.deleteQuarantineAfterDays
     if ($retention -and [int]::TryParse($retention, [ref]0)) {
         $script:QuarantineRetentionDays = $retention
@@ -40,10 +40,12 @@ function Initialize-Quarantine {
     param()
     $root = Get-QuarantineRoot
     if (-not $root) { throw 'Quarantine root could not be resolved' }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($root)) { throw 'Quarantine must be on C: without reparse points.' }
     if (-not (Test-Path -LiteralPath $root -PathType Container)) {
         New-Item -ItemType Directory -Path $root -Force | Out-Null
     }
     $manifestDir = Join-Path $root 'Manifests'
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($manifestDir)) { throw 'Unsafe quarantine manifest directory.' }
     if (-not (Test-Path -LiteralPath $manifestDir -PathType Container)) {
         New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
     }
@@ -74,6 +76,7 @@ function New-QuarantineManifest {
         QuarantinedPath   = $null
         Restored          = $false
         RestoredAt        = $null
+        Status            = 'Pending'
     }
     return $manifest
 }
@@ -88,24 +91,19 @@ function Move-ItemToQuarantine {
         [switch]$WhatIf
     )
 
-    $root = Initialize-Quarantine
+    $root = Get-QuarantineRoot
     $resolvedPath = Resolve-FullPath $Path
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($Path) -or -not [Bakunawa.Scanner]::IsAllowedPath($root)) {
+        throw 'Quarantine source and destination must be on C: without reparse points.'
+    }
     if (-not $resolvedPath -or -not (Test-Path -LiteralPath $resolvedPath)) {
         return $null
     }
 
-    if (Test-IsExcludedPath $resolvedPath) {
-        return $null
-    }
+    if ($resolvedPath -eq [IO.Path]::GetPathRoot($resolvedPath).TrimEnd('\')) { throw 'Cannot quarantine a drive root.' }
+    $measurement = [Bakunawa.Scanner]::Inspect($resolvedPath, [string[]](@(Get-CoreExcludedPaths) + @($root)))
 
-    $size = 0
-    try {
-        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
-            $size = (Get-Item -LiteralPath $resolvedPath -EA SilentlyContinue).Length
-        } else {
-            $size = Get-DirectorySize $resolvedPath
-        }
-    } catch {}
+    $size = $measurement.Bytes
 
     $manifest = New-QuarantineManifest -OriginalPath $resolvedPath -SizeBytes $size -Reason $Reason -Tier $Tier -DetectorName $DetectorName
     $manifestDir = Join-Path $root 'Manifests'
@@ -120,29 +118,34 @@ function Move-ItemToQuarantine {
     }
 
     try {
+        $null = Initialize-Quarantine
         New-Item -ItemType Directory -Path $quarantineSubDir -Force | Out-Null
-        Move-Item -LiteralPath $resolvedPath -Destination $quarantineTarget -Force -EA Stop
+        # Persist recovery information BEFORE moving data. Never delete payload on failure.
         $manifest.QuarantinedPath = $quarantineTarget
-        $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+        $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 -ErrorAction Stop
+        Move-Item -LiteralPath $resolvedPath -Destination $quarantineTarget -Force -EA Stop
+        $manifest.Status = 'Complete'
+        $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 -ErrorAction Stop
         return $manifest
     } catch {
-        if (Test-Path -LiteralPath $quarantineSubDir) { Remove-Item -LiteralPath $quarantineSubDir -Recurse -Force -EA SilentlyContinue }
-        return $null
+        throw "Quarantine failed; any recovery data and manifest were retained: $($_.Exception.Message)"
     }
 }
 
 function Restore-QuarantinedItem {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$QuarantineId,
+        [Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{32}$')][string]$QuarantineId,
         [AllowEmptyString()][string]$DestinationPath
     )
 
     $root = Get-QuarantineRoot
     if (-not $root) { throw 'Quarantine root not initialized' }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($root)) { throw 'Quarantine must be on C: without reparse points.' }
 
     $manifestDir = Join-Path $root 'Manifests'
     $manifestPath = Join-Path $manifestDir "$QuarantineId.json"
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($manifestPath)) { throw 'Unsafe quarantine manifest path.' }
 
     if (-not (Test-Path -LiteralPath $manifestPath)) { return $false }
 
@@ -151,16 +154,21 @@ function Restore-QuarantinedItem {
 
     $sourcePath = $manifest.QuarantinedPath
     if (-not (Test-Path -LiteralPath $sourcePath)) { return $false }
+    $payloadRoot = Join-Path $root $QuarantineId
+    if (-not [Bakunawa.Scanner]::Within([IO.Path]::GetFullPath($sourcePath), $payloadRoot)) { throw 'Invalid quarantine payload path.' }
+    $null = [Bakunawa.Scanner]::Inspect($sourcePath, [string[]]@())
 
     $targetPath = $DestinationPath
     if (-not $targetPath) { $targetPath = $manifest.OriginalPath }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($targetPath)) { throw 'Restore destination must be on C: without reparse points.' }
+    if (Test-Path -LiteralPath $targetPath) { throw 'Restore destination already exists. Choose an empty destination.' }
 
     try {
         $targetDir = Split-Path -Parent $targetPath
         if (-not (Test-Path -LiteralPath $targetDir -PathType Container)) {
             New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
         }
-        Move-Item -LiteralPath $sourcePath -Destination $targetPath -Force -EA Stop
+        Move-Item -LiteralPath $sourcePath -Destination $targetPath -EA Stop
         $manifest.Restored = $true
         $manifest.RestoredAt = (Get-Date).ToString('o')
         $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
@@ -176,7 +184,7 @@ function Clear-ExpiredQuarantine {
     if ($RetentionDays -le 0) { $RetentionDays = Get-QuarantineRetentionDays }
 
     $root = Get-QuarantineRoot
-    if (-not $root -or -not (Test-Path -LiteralPath $root)) { return 0 }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($root) -or -not [Bakunawa.Scanner]::IsAllowedPath((Join-Path $root 'Manifests')) -or -not (Test-Path -LiteralPath $root)) { return 0 }
 
     # ponytail: the purge walk parses every manifest (GUID-named, no timestamp in the name)
     # and cost 16s with thousands of items; it only ever needs to run once per day.
@@ -195,16 +203,19 @@ function Clear-ExpiredQuarantine {
     $removed = 0
 
     Get-ChildItem -LiteralPath $manifestDir -Filter '*.json' -File -Force -EA SilentlyContinue | ForEach-Object {
+        if (-not [Bakunawa.Scanner]::IsAllowedPath($_.FullName)) { return }
         $manifestPath = $_.FullName
         try {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $quarantineTime = [DateTime]::Parse($manifest.Timestamp)
-            if ($quarantineTime -lt $cutoff -and -not $manifest.Restored) {
+            if ($quarantineTime -lt $cutoff -and -not $manifest.Restored -and $manifest.Status -ne 'Pending') {
+                if ($manifest.QuarantineId -notmatch '^[a-fA-F0-9]{32}$') { throw 'Invalid quarantine ID.' }
                 $quarantineSubDir = Join-Path $root $manifest.QuarantineId
                 if (Test-Path -LiteralPath $quarantineSubDir) {
-                    Remove-Item -LiteralPath $quarantineSubDir -Recurse -Force -EA SilentlyContinue
+                    $null = [Bakunawa.Scanner]::Inspect($quarantineSubDir, [string[]]@())
+                    Remove-Item -LiteralPath $quarantineSubDir -Recurse -Force -EA Stop
                 }
-                Remove-Item -LiteralPath $manifestPath -Force -EA SilentlyContinue
+                Remove-Item -LiteralPath $manifestPath -Force -EA Stop
                 $removed++
             }
         } catch {}
@@ -217,13 +228,14 @@ function Get-QuarantineInventory {
     [CmdletBinding()]
     param()
     $root = Get-QuarantineRoot
-    if (-not $root -or -not (Test-Path -LiteralPath $root)) { return @() }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($root) -or -not [Bakunawa.Scanner]::IsAllowedPath((Join-Path $root 'Manifests')) -or -not (Test-Path -LiteralPath $root)) { return @() }
 
     $manifestDir = Join-Path $root 'Manifests'
     if (-not (Test-Path -LiteralPath $manifestDir)) { return @() }
 
     $items = @()
     Get-ChildItem -LiteralPath $manifestDir -Filter '*.json' -File -Force -EA SilentlyContinue | ForEach-Object {
+        if (-not [Bakunawa.Scanner]::IsAllowedPath($_.FullName)) { return }
         try {
             $manifest = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
             $items += $manifest

@@ -56,11 +56,7 @@ function Write-Log {
         default{ 'Gray' }
     }
     # Minimal console line: no timestamp, no glyph. Full detail goes to the file log.
-    Write-Host "  $Message" -ForegroundColor $color
-    if ($script:LogFilePath) {
-        $line = "[$ts][$Level] $Message"
-        try { Add-Content -LiteralPath $script:LogFilePath -Value $line -Encoding UTF8 } catch {}
-    }
+    Write-ReviewLine ("[{0}] {1}" -f $Level, $Message) -ForegroundColor $color
 }
 
 function Write-CommandLog {
@@ -98,33 +94,25 @@ function Write-SectionHeader {
 function Write-Panel {
     [CmdletBinding()]
     param([string[]]$Lines,[string]$BorderColor='DarkCyan',[string]$TextColor='White',[int]$MinWidth=60,[int]$MaxWidth=92)
-    $cw = Get-ConsoleWidth; $aw = [Math]::Max(20,$cw-4); $mxl=0
-    foreach($l in $Lines){if($l.Length -gt $mxl){$mxl=$l.Length}}
-    $pw = [Math]::Min($aw,[Math]::Max($MinWidth,$mxl+4))
-    $pw = [Math]::Min($pw,$MaxWidth); $pw = [Math]::Min($pw,$cw)
-    $iw = [Math]::Max(1,$pw-4); $pad = [Math]::Max(0,[int](($cw-$pw)/2))
-    $lp = ' '*$pad
-    $useVT = Test-VT100Supported
-    # Use White for borders instead of BorderColor parameter
-    $actualBorderColor = 'White'
-    if ($useVT) {
-        $boxH = [char]0x2550; $boxV = [char]0x2551
-        $boxTL = [char]0x2554; $boxTR = [char]0x2557
-        $boxBL = [char]0x255A; $boxBR = [char]0x255D
-        Write-Host ($lp+$boxTL+($boxH.ToString()*($pw-2))+$boxTR) -ForegroundColor $actualBorderColor
-        foreach($l in $Lines){
-            $rl = (Get-DisplayText $l $iw).PadRight($iw)
-            Write-Host ($lp+$boxV+' '+$rl+' '+$boxV) -ForegroundColor $actualBorderColor
+    $cw = Get-ConsoleWidth
+    if ($cw -lt 8) { foreach ($line in $Lines) { Write-ReviewLine $line }; return }
+    $longest = [int](($Lines | Measure-Object Length -Maximum).Maximum)
+    $pw = [Math]::Min($cw - 2, [Math]::Min($MaxWidth, [Math]::Max($MinWidth, $longest + 4)))
+    $iw = [Math]::Max(1, $pw - 4)
+    $indent = ' ' * [Math]::Max(0, [int](($cw - $pw) / 2))
+    $border = $indent + '+' + ('-' * ($pw - 2)) + '+'
+    Write-Host $border -ForegroundColor $BorderColor
+    foreach ($line in $Lines) {
+        $remaining = [string]$line -replace '\x1B\[[0-?]*[ -/]*[@-~]', '' -replace '[\x00-\x1F\x7F]', ' '
+        while ($remaining.Length -gt $iw) {
+            $split = $remaining.LastIndexOf(' ', $iw)
+            if ($split -lt [Math]::Max(1, [int]($iw / 2))) { $split = $iw }
+            Write-Host ($indent + '| ' + $remaining.Substring(0, $split).PadRight($iw) + ' |') -ForegroundColor $TextColor
+            $remaining = $remaining.Substring($split).TrimStart(' ')
         }
-        Write-Host ($lp+$boxBL+($boxH.ToString()*($pw-2))+$boxBR) -ForegroundColor $actualBorderColor
-    } else {
-        Write-Host ($lp+'+'+('-'*($pw-2))+'+') -ForegroundColor $actualBorderColor
-        foreach($l in $Lines){
-            $rl = (Get-DisplayText $l $iw).PadRight($iw)
-            Write-Host ($lp+'| '+$rl+' |') -ForegroundColor $actualBorderColor
-        }
-        Write-Host ($lp+'+'+('-'*($pw-2))+'+') -ForegroundColor $actualBorderColor
+        Write-Host ($indent + '| ' + $remaining.PadRight($iw) + ' |') -ForegroundColor $TextColor
     }
+    Write-Host $border -ForegroundColor $BorderColor
 }
 
 function Show-AppLogo {
@@ -155,21 +143,6 @@ function Show-AppLogo {
 function Get-ThemedGlyph {
     [CmdletBinding()]
     param([ValidateSet('Step','Ok','Warn','Err','Cmd','Scan','Size','Info','Serp','Flame')][string]$Kind)
-    if (Test-VT100Supported) {
-        switch ($Kind) {
-            'Step'  { return [char]0x25C8 }   # ◈
-            'Ok'    { return [char]0x2714 }   # ✔
-            'Warn'  { return [char]0x26A0 }   # ⚠
-            'Err'   { return [char]0x2718 }   # ✘
-            'Cmd'   { return [char]0x2023 }   # ‣
-            'Scan'  { return [char]0x25CE }   # ◎
-            'Size'  { return [char]0x25D8 }   # ◘
-            'Info'  { return [char]0x25CB }   # ○
-            'Serp'  { return '~' }
-            'Flame' { return '^' }
-            default { return [char]0x25CF }   # ●
-        }
-    }
     switch ($Kind) {
         'Step'  { return '>>' }
         'Ok'    { return '[+]' }
@@ -205,6 +178,22 @@ function Get-MoonPhaseGlyph {
     return $ascii[$idx]
 }
 
+function Reset-CleanupProgress {
+    $script:StepIndex = 0
+    $script:TotalSteps = 0
+    $script:ActiveStepName = $null
+}
+
+function Set-UiContext {
+    param([string]$Mode, $Result)
+    if ($Mode) { $script:CurrentModeName = $Mode }
+    $script:ExcludedPaths = @(Get-CoreExcludedPaths)
+    $script:RunningProcesses = Get-RunningProcessNames
+    if ($Result) {
+        $script:LastRunSummary = @{ Mode = $Result.Mode; DurationSeconds = $Result.DurationSec; TotalFreed = $Result.BytesFreed; IsPreview = $Result.IsPreview }
+    }
+}
+
 function Start-Step {
     [CmdletBinding()]
     param([string]$Name, [int]$Total = 0)
@@ -213,9 +202,13 @@ function Start-Step {
     elseif (-not $script:TotalSteps -or $script:TotalSteps -le 0) { $script:TotalSteps = $script:StepIndex }
     Write-Host ''
     $stepTag = if ($script:TotalSteps -gt 0) { '[{0:D2}/{1:D2}]' -f $script:StepIndex, $script:TotalSteps } else { '[--/--]' }
-    Write-Host ("{0} {1}" -f $stepTag, $Name) -ForegroundColor Cyan
+    Write-ReviewLine ("{0} {1}" -f $stepTag, $Name)
     $script:ActiveStepName = $Name; $script:ActiveStepPct = 0
-    $Host.UI.RawUI.WindowTitle = "Bakunawa $($script:StepIndex)/$($script:TotalSteps) $Name"
+    $script:StepWatch = [Diagnostics.Stopwatch]::StartNew()
+    if (-not $script:NoAnimations) {
+        Write-Progress -Id 1 -Activity 'Bakunawa / categories' -Status "$stepTag $Name" -PercentComplete ([int](100 * ($script:StepIndex - 1) / $script:TotalSteps))
+    }
+    try { $Host.UI.RawUI.WindowTitle = "Bakunawa $($script:StepIndex)/$($script:TotalSteps) $Name" } catch {}
 }
 
 function Finish-Step {
@@ -223,11 +216,11 @@ function Finish-Step {
     param([string]$Summary)
     $script:ActiveStepName = $null
     if ($Summary) {
-        Write-Host ("  -> {0}" -f $Summary) -ForegroundColor DarkGray
+        Write-ReviewLine ("  Done in {0} | {1}" -f (Format-ReportDuration $script:StepWatch.Elapsed.TotalSeconds), $Summary) -ForegroundColor Gray
     }
     if ($script:StepIndex -ge $script:TotalSteps -and $script:TotalSteps -gt 0) {
         Write-Progress -Activity 'Bakunawa' -Completed -Id 1
-        $Host.UI.RawUI.WindowTitle = 'Bakunawa - done'
+        try { $Host.UI.RawUI.WindowTitle = 'Bakunawa - done' } catch {}
     }
 }
 
@@ -239,33 +232,27 @@ function Show-Header {
     $modeColor = Get-ModeColor $script:CurrentModeName
     $free = Get-FreeSpaceInfo
     $ml = if($script:CurrentModeName -eq 'Menu'){'INTERACTIVE'}else{$script:CurrentModeName.ToUpperInvariant()}
-    $lr = if($script:LastRunSummary){"$($script:LastRunSummary.Mode) | $($script:LastRunSummary.DurationSeconds)s | $(Format-FileSize $script:LastRunSummary.TotalFreed)"}else{'none yet'}
+    $lr = if ($script:LastRunSummary) {
+        $label = if ($script:LastRunSummary.IsPreview) { 'estimated' } else { 'deleted' }
+        "$($script:LastRunSummary.Mode) | $(Format-ReportDuration $script:LastRunSummary.DurationSeconds) | $(Format-FileSize $script:LastRunSummary.TotalFreed) $label"
+    } else { 'none yet' }
     $protected = Format-CompactList -Items ($script:ExcludedPaths | Sort-Object) -MaxItems 3
     # Dynamic run bar that reflects current mode and progress
     if($script:CurrentModeName -eq 'Menu'){
         $runBar = '[..................] idle'
     } elseif ($script:CurrentModeName -eq 'Scan') {
         # For scan mode, show a pulsing indicator since it's a single long-running operation
-        $pulseFrames = @('|','/','-','\')
-        $pulseIndex = [Math]::Floor((Get-Date).Millisecond / 250) % 4
-        $runBar = "[${pulseFrames[$pulseIndex]}-----------------] scanning"
+        $runBar = '[..................] preparing scan'
     } else {
         # For cleanup modes, show step progress
         $runBar = New-AsciiBar -Value $script:StepIndex -Total $script:TotalSteps -Width 18
     }
-    $healthLine = 'Health     : not available'
-    try {
-        $h = Get-HealthScore -Fast
-        $barChar = if (Test-VT100Supported) { [char]0x2588 } else { '#' }
-        $filled = [math]::Floor($h.Score / 10)
-        $hb = "$($barChar.ToString() * $filled)$('.' * (10 - $filled))"
-        $healthLine = "Health     : $hb $($h.Score)/100 $($h.Grade)"
-    } catch {}
+    $freePct = if ($free.TotalMB -gt 0) { [math]::Round(100 * $free.MB / $free.TotalMB) } else { 0 }
     Write-Panel @(
         "Mode       : $ml"
-        "Free       : $($free.MB) MB ($($free.GB) GB)"
+        'Scope      : Local disk C: only'
+        "Free       : $($free.GB) GB / $($free.TotalGB) GB ($freePct% available)"
         "Protected  : $protected"
-        $healthLine
         "Last run   : $lr"
         "Run bar    : $runBar"
     ) -BorderColor $modeColor -TextColor 'White' -MinWidth 62 -MaxWidth 92
@@ -310,12 +297,13 @@ function Show-Menu {
         $menuLines = [System.Collections.Generic.List[string]]::new()
         [void]$menuLines.Add('MAIN MENU'); [void]$menuLines.Add('')
         [void]$menuLines.Add('[1] Standard    temp, browsers, apps, orphans')
-        [void]$menuLines.Add('[2] Aggressive  + DISM + event logs + prefetch')
+        [void]$menuLines.Add('[2] Aggressive  + Windows components + prefetch')
         [void]$menuLines.Add('[3] Preview     dry run -- see plan only')
-        [void]$menuLines.Add('[4] Orphans     interactive orphan review')
+        [void]$menuLines.Add('[4] Scan C:     caches, leftovers, review and restore')
         [void]$menuLines.Add('[5] Health      detailed system health report')
         [void]$menuLines.Add('')
-        [void]$menuLines.Add('Busy browsers and selected apps are skipped for safety.')
+        [void]$menuLines.Add('Start with [3] Preview. Use [4] to review the largest findings.')
+        [void]$menuLines.Add('Other drives and busy application caches are skipped.')
         [void]$menuLines.Add('[Q] Quit')
         if ($runningApps.Count -gt 0) {
             [void]$menuLines.Add('')
@@ -329,11 +317,11 @@ function Show-Menu {
 if (-not $choice) { continue }
 $choice = $choice.Trim().ToUpperInvariant()
         switch ($choice) {
-            '1' { Invoke-CleanupRun 'Standard';   Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '2' { Invoke-CleanupRun 'Aggressive'; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '3' { Invoke-CleanupRun 'Preview';    Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '4' { Show-Header; $script:IsPreview=$false; Start-Step 'Orphan folder scan'; $o=Find-OrphanFolders; Finish-Step 'Orphan check complete'; Show-OrphanScanResults -ScanResult @{ Findings = @($o) }; Write-Host ''; [void](Read-Host '[Press Enter to return to Menu]') }
-            '5' { Show-HealthDetail; [void](Read-Host '[Press Enter to return to Menu]') }
+            '1' { Invoke-LoggedOperation -Mode Standard -Action { Show-CleanupResult (Invoke-CleanupRun 'Standard') }; [void](Read-Host '[Press Enter to return to Menu]') }
+            '2' { Invoke-LoggedOperation -Mode Aggressive -Action { Show-CleanupResult (Invoke-CleanupRun 'Aggressive') }; [void](Read-Host '[Press Enter to return to Menu]') }
+            '3' { Invoke-LoggedOperation -Mode Preview -Action { Show-CleanupResult (Invoke-CleanupRun 'Preview') }; [void](Read-Host '[Press Enter to return to Menu]') }
+            '4' { Invoke-LoggedOperation -Mode Scan -Action { $null = Find-OrphanFolders -Refresh; Show-OrphanScanResults -ScanResult (Get-OrphanScanReport) -Interactive }; [void](Read-Host '[Press Enter to return to Menu]') }
+            '5' { Invoke-LoggedOperation -Mode Health -Action { Show-HealthDetail }; [void](Read-Host '[Press Enter to return to Menu]') }
             'Q' { return }
             default { Write-Host 'Invalid.' -ForegroundColor Yellow; Start-Sleep -Milliseconds 500 }
         }
@@ -387,52 +375,8 @@ function Show-RunSummary {
     elseif ($script:IsAggressive) { Write-Log 'Aggressive mode completed with extras.' 'WARN' }
 }
 
-function Show-OrphanScanResults {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][hashtable]$ScanResult
-    )
-    if (-not $ScanResult -or -not $ScanResult.Findings) { return }
-
-    Write-SectionHeader 'Orphan Scan Results'
-    $findings = $ScanResult.Findings
-
-    # Group by tier
-    $tier1 = $findings | Where-Object { $_.Tier -eq 'Tier1' }
-    $tier2 = $findings | Where-Object { $_.Tier -eq 'Tier2' }
-    $tier3 = $findings | Where-Object { $_.Tier -eq 'Tier3' }
-
-    if ($tier1.Count -gt 0) {
-        Write-Host '  TIER 1 - Safe Auto-Clean (Quarantined):' -ForegroundColor Green
-        $totalSize = ($tier1 | Measure-Object -Property Size -Sum).Sum
-        Write-Host ("    {0,-50} {1,12}" -f 'Total items:', $tier1.Count) -ForegroundColor DarkGray
-        Write-Host ("    {0,-50} {1,12}" -f 'Total size:', (Format-FileSize $totalSize)) -ForegroundColor DarkGray
-        Write-Host ''
-    }
-
-    if ($tier2.Count -gt 0) {
-        Write-Host '  TIER 2 - Review Required:' -ForegroundColor Yellow
-        $totalSize = ($tier2 | Measure-Object -Property Size -Sum).Sum
-        Write-Host ("    {0,-50} {1,12}" -f 'Total items:', $tier2.Count) -ForegroundColor DarkGray
-        Write-Host ("    {0,-50} {1,12}" -f 'Total size:', (Format-FileSize $totalSize)) -ForegroundColor DarkGray
-        
-        $tier2 | Sort-Object { if ($_.RiskScore) { $_.RiskScore } else { 0 } } -Descending | Select-Object -First 10 | ForEach-Object {
-            $riskColor = if ($_.RiskLevel -eq 'High') { 'Red' } elseif ($_.RiskLevel -eq 'Medium') { 'Yellow' } else { 'Green' }
-            $path = Get-DisplayText $_.Path 45
-            Write-Host ("    {0,-45} {1,10}  [{2}]" -f $path, (Format-FileSize $_.Size), $_.RiskLevel) -ForegroundColor $riskColor
-        }
-        if ($tier2.Count -gt 10) { Write-Host ("    ... and $($tier2.Count - 10) more") -ForegroundColor DarkGray }
-        Write-Host ''
-    }
-
-    if ($tier3.Count -gt 0) {
-        Write-Host '  TIER 3 - Report Only (Manual Action Required):' -ForegroundColor Red
-        $tier3 | Group-Object Tier | ForEach-Object {
-            Write-Host ("    {0,-45} {1,5}" -f $_.Name, $_.Count) -ForegroundColor DarkGray
-        }
-        Write-Host ''
-    }
-}
+. (Join-Path $PSScriptRoot 'Bakunawa.Reporting.ps1')
+. (Join-Path $PSScriptRoot 'Bakunawa.Review.ps1')
 
 function Show-QuarantineSummary {
     [CmdletBinding()]
@@ -469,19 +413,35 @@ function Show-QuarantineSummary {
 function Show-HealthDetail {
     [CmdletBinding()]
     param()
-    $cfg = Get-UserConfig -UseDefault
+    Write-ReviewLine 'Measuring temporary data and reading drive capacity...' -ForegroundColor Cyan
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     $health = Get-HealthScore
-    
-    Write-Host ''
-    Write-SectionHeader 'System Health Details'
-    Write-Host "  Health Score     : $($health.Score)/100 - $($health.Status)"
-    Write-Host "  Reclaimable      : $(Format-FileSize $health.ReclaimableBytes)"
-    Write-Host "  Protected Paths  : $($cfg.exclusions.hardExcluded.Count + $cfg.exclusions.userCustomExclusions.Count)"
-    Write-Host "  Last Cleanup     : $(if ($health.LastRun) { $health.LastRun } else { 'Never' })"
-    Write-Host ''
+    Write-ReportHeading 'STORAGE HEALTH SUMMARY'
+    Write-ReportMetric 'Elapsed' (Format-ReportDuration $watch.Elapsed.TotalSeconds)
+    Write-ReportMetric 'C: storage score' ("{0}/100 - {1}" -f $health.Score, $health.Grade)
+    Write-ReportMetric 'C: free space' ("{0}%" -f $health.DiskPct)
+    Write-ReportMetric 'Estimated temp data' (Format-FileSize ($health.TempMB * 1MB))
+    Write-ReviewLine 'This score is a cleanup estimate, not a disk hardware diagnostic.'
+    Write-ReviewLine 'Health measurements do not establish complete filesystem coverage.' -ForegroundColor Gray
+    foreach ($root in @(Get-ScanDriveRoots)) {
+        try {
+            $drive = [IO.DriveInfo]::new($root)
+            if ($drive.IsReady) { Write-ReviewLine ("{0}  {1} available / {2} total" -f $root, (Format-FileSize $drive.AvailableFreeSpace), (Format-FileSize $drive.TotalSize)) }
+            else { Write-ReviewLine "$root unavailable" }
+        } catch { Write-ReviewLine "$root could not be read: $($_.Exception.Message)" }
+    }
 }
 
 Export-ModuleMember -Function @(
+    'Invoke-LoggedOperation',
+    'Get-ScanLogPath',
+    'Set-UiOptions',
+    'Write-ScanLogText',
+    'Write-ScanReportLog',
+    'Write-ScanProgress',
+    'Write-ReportHeading',
+    'Write-ReportMetric',
+    'Format-ReportDuration',
     'Initialize-UiLogging',
     'Write-Log',
     'Write-CommandLog',
@@ -492,12 +452,16 @@ Export-ModuleMember -Function @(
     'Get-ThemedGlyph',
     'Get-MoonPhaseGlyph',
     'Start-Step',
+    'Reset-CleanupProgress',
+    'Set-UiContext',
     'Finish-Step',
     'Show-Header',
     'Show-CleanupPotential',
     'Show-Menu',
     'Show-RunSummary',
     'Show-OrphanScanResults',
+    'Show-CleanupResult',
+    'Write-ReviewLine',
     'Show-QuarantineSummary',
     'Show-HealthDetail',
     'Test-VT100Supported',

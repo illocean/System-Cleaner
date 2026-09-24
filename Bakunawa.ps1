@@ -13,7 +13,9 @@ param(
     [string]$Profile,
     [switch]$SkipBootstrap,
     [switch]$ForceAdmin,
-    [switch]$NoAnimations
+    [switch]$NoAnimations,
+    [string[]]$ScanRoot,
+    [string]$ReportPath
 )
 
 Set-Variable -Name ErrorActionPreference -Value 'Continue' -Scope Script
@@ -38,34 +40,7 @@ Import-Module (Join-Path $moduleDir 'Bakunawa.Quarantine.psm1') -Force -Scope Gl
 
 function Show-RunSummary {
     param([PSCustomObject]$Result)
-    $width = [Math]::Min(64, (Get-ConsoleWidth) - 1)
-    $rule = ([string][char]0x2500) * $width
-    Write-Host ''
-    Write-Host $rule -ForegroundColor DarkGray
-
-    $verb = switch ($Result.Mode) {
-        'Preview'    { 'Preview complete' }
-        'Aggressive' { 'Deep clean complete' }
-        default      { 'Cleanup complete' }
-    }
-    $dur = '{0:m\:ss}' -f [TimeSpan]::FromSeconds([double]$Result.DurationSec)
-    Write-Host ("{0} in {1}" -f $verb, $dur) -ForegroundColor White
-
-    $label = if ($Result.Mode -eq 'Preview') { 'Reclaimable' } else { 'Freed' }
-    Write-Host ("  {0} : {1} ({2} path{3})" -f $label, (Format-FileSize $Result.BytesFreed), $Result.PathsCleared, $(if ($Result.PathsCleared -eq 1) { '' } else { 's' }))
-
-    $skipCount = @($Result.SkippedItems).Count
-    Write-Host ("  Skipped     : {0}" -f $skipCount) -ForegroundColor $(if ($skipCount -gt 0) { 'Yellow' } else { 'Gray' })
-    foreach ($s in (@($Result.SkippedItems) | Select-Object -First 3)) {
-        Write-Host ("    - {0}: {1}" -f (Get-DisplayText $s.Target 46), $s.Reason) -ForegroundColor DarkYellow
-    }
-
-    $errCount = @($Result.Errors).Count
-    Write-Host ("  Errors      : {0}" -f $errCount) -ForegroundColor $(if ($errCount -gt 0) { 'Red' } else { 'Gray' })
-    foreach ($e in (@($Result.Errors) | Select-Object -First 3)) {
-        Write-Host ("    - {0}: {1}" -f (Get-DisplayText $e.Path 46), $e.Error) -ForegroundColor Red
-    }
-    Write-Host $rule -ForegroundColor DarkGray
+    Show-CleanupResult -Result $Result
 }
 
 function Test-IsWSL {
@@ -105,15 +80,19 @@ function Restart-Elevated {
         return $false
     }
     $entry = if ($PSCommandPath) { $PSCommandPath } else { Join-Path $PSScriptRoot 'Bakunawa.ps1' }
-    # Single pre-quoted string: PowerShell 5.1 Start-Process mangles ArgumentList arrays on join.
-    $cmd = "-NoProfile -ExecutionPolicy Bypass -File `"$entry`""
-    if ($SelectedMode) { $cmd += " -Mode $SelectedMode" }
-    if ($ForceAdmin) { $cmd += ' -ForceAdmin' }
-    if ($NoAnimations) { $cmd += ' -NoAnimations' }
-    if ($VerboseScan) { $cmd += ' -VerboseScan' }
-    if ($ExtraExcludePath) { $cmd += ' -ExtraExcludePath ' + ($ExtraExcludePath -join ',') }
-    if ($LogFile) { $cmd += " -LogFile `"$LogFile`"" }
-    if ($Profile) { $cmd += " -Profile `"$Profile`"" }
+    # Serialize arguments as data so arrays, spaces, apostrophes and dollar signs survive elevation.
+    $forward = @{ Mode = $SelectedMode }
+    foreach ($name in @('ForceAdmin','NoAnimations','VerboseScan','NoPause')) {
+        if (Get-Variable -Name $name -ValueOnly) { $forward[$name] = $true }
+    }
+    foreach ($name in @('ExtraExcludePath','LogFile','ScanRoot','ReportPath','Profile')) {
+        $value = Get-Variable -Name $name -ValueOnly
+        if ($value) { $forward[$name] = $value }
+    }
+    $data = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Management.Automation.PSSerializer]::Serialize($forward)))
+    $body = '$forward = [Management.Automation.PSSerializer]::Deserialize([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''{0}''))); & ''{1}'' @forward' -f $data, $entry.Replace("'", "''")
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
+    $cmd = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
     Write-Host ''
     Write-Host 'Administrator rights required. Requesting elevation...' -ForegroundColor Yellow
     try {
@@ -131,20 +110,6 @@ if (-not $SkipBootstrap) {
     if ($Mode -notin $validModes) {
         Write-Host "Invalid mode: '$Mode'. Valid modes: $($validModes -join ', ')" -ForegroundColor Red
         exit 1
-    }
-
-    # Admin check for modes that require it (Menu requires admin for cleanup actions)
-    $needsAdmin = $Mode -in @('Menu','Standard','Aggressive','Scan') -and -not (Test-IsAdministrator) -and -not $ForceAdmin
-    if ($needsAdmin) {
-        Write-Host "$Mode mode requires administrator privileges for full system access." -ForegroundColor Yellow
-        if (-not (Restart-Elevated -SelectedMode $Mode)) {
-            Write-Host ''
-            Write-Host 'Automatic elevation failed. Without admin rights, system-level cleanup fails with "Access is denied".' -ForegroundColor Red
-            Write-Host 'Fix: right-click PowerShell, choose "Run as administrator", then run Bakunawa again.' -ForegroundColor Yellow
-            Write-Host '      (Your account must be in the local Administrators group and UAC must be enabled.)' -ForegroundColor Yellow
-            exit 1
-        }
-        exit 0
     }
 
     # Profile handling with validation
@@ -171,6 +136,20 @@ if (-not $SkipBootstrap) {
         }
     }
 
+    # Admin check for modes that require it (Menu requires admin for cleanup actions)
+    $needsAdmin = $Mode -in @('Menu','Standard','Aggressive') -and -not (Test-IsAdministrator) -and -not $ForceAdmin
+    if ($needsAdmin) {
+        Write-Host "$Mode mode requires administrator privileges for full system access." -ForegroundColor Yellow
+        if (-not (Restart-Elevated -SelectedMode $Mode)) {
+            Write-Host ''
+            Write-Host 'Automatic elevation failed. Without admin rights, system-level cleanup fails with "Access is denied".' -ForegroundColor Red
+            Write-Host 'Fix: right-click PowerShell, choose "Run as administrator", then run Bakunawa again.' -ForegroundColor Yellow
+            Write-Host '      (Your account must be in the local Administrators group and UAC must be enabled.)' -ForegroundColor Yellow
+            exit 1
+        }
+        exit 0
+    }
+
     if ($VerboseScan) { $script:VerboseScan = $true }
     if ($ExtraExcludePath) { $script:ExtraExcludePaths = $ExtraExcludePath }
     
@@ -188,60 +167,43 @@ if (-not $SkipBootstrap) {
     $configPath = Join-Path $env:APPDATA 'Bakunawa\config.json'
     Initialize-ConfigModule -ConfigPath $configPath
 
-    $config = Get-UserConfig -ConfigPath $configPath -UseDefault
+    $config = Get-UserConfig -ConfigPath $configPath
     $extraExclusions = @()
     if ($config.extraExcludePaths) { $extraExclusions += $config.extraExcludePaths }
     if ($script:ExtraExcludePaths) { $extraExclusions += $script:ExtraExcludePaths }
 
-    $null = Initialize-CoreSafetyState -ExtraExcludePath $extraExclusions
+    Initialize-CleanupState -Config $config -ScanRoot $ScanRoot -ExtraExcludePath $extraExclusions
+    Set-UiContext -Mode $Mode
+    Set-UiOptions -NoAnimations:$NoAnimations
 
-    Initialize-Quarantine | Out-Null
-    Clear-ExpiredQuarantine | Out-Null
-
+    $runMode = {
     switch ($Mode) {
         'Standard'   { 
             Show-RunSummary (Invoke-CleanupRun -Mode 'Standard')
             Write-Host ''
-            [void](Read-Host '[Press Enter to return to Menu]')
         }
         'Aggressive' { 
             Show-RunSummary (Invoke-CleanupRun -Mode 'Aggressive')
             Write-Host ''
-            [void](Read-Host '[Press Enter to return to Menu]')
         }
         'Preview'    { 
             Show-RunSummary (Invoke-CleanupRun -Mode 'Preview' -WhatIf)
             Write-Host ''
-            [void](Read-Host '[Press Enter to return to Menu]')
         }
         'Scan'       {
             Show-Header
-            $script:IsPreview = $false
-            Start-Step 'Orphan scan'
-            $o = Find-OrphanFolders
-            Show-OrphanScanResults -ScanResult @{ Findings = @($o) }
-            
-            # Show summary of scan results
-            $totalFindings = @($o).Count
-            $tier1Count = @($o | Where-Object { $_.Tier -eq 'Tier1' }).Count
-            $tier2Count = @($o | Where-Object { $_.Tier -eq 'Tier2' }).Count
-            $tier3Count = @($o | Where-Object { $_.Tier -eq 'Tier3' }).Count
-            
-            Write-Host ''
-            Write-Host '=== SCAN SUMMARY ===' -ForegroundColor Cyan
-            Write-Host ("Total findings: {0}" -f $totalFindings) -ForegroundColor White
-            Write-Host ("  Tier 1 (Safe): {0}" -f $tier1Count) -ForegroundColor Green
-            Write-Host ("  Tier 2 (Review): {0}" -f $tier2Count) -ForegroundColor Yellow
-            Write-Host ("  Tier 3 (Manual): {0}" -f $tier3Count) -ForegroundColor Red
-            Write-Host ''
-            
-            [void](Read-Host '[Press Enter to return to Menu]')
+            $null = Find-OrphanFolders -Refresh
+            $report = Get-OrphanScanReport
+            Show-OrphanScanResults -ScanResult $report
+            if ($ReportPath) {
+                $report | ConvertTo-Json -Depth 8 | Out-File -LiteralPath $ReportPath -Encoding UTF8 -NoClobber -ErrorAction Stop
+                Write-ReviewLine "Report saved: $ReportPath"
+            }
         }
         'Health'     {
             Show-Header
             Show-HealthDetail
             Write-Host ''
-            [void](Read-Host '[Press Enter to return to Menu]')
         }
 'Benchmark'  {
             Show-Header
@@ -253,25 +215,32 @@ if (-not $SkipBootstrap) {
             $categoryTimes = @{}
             
             $tasks = Get-CleanupTasks -Mode 'Standard'
+            Reset-CleanupProgress
             foreach ($task in $tasks) {
+                Start-Step -Name $task.Name -Total $tasks.Count
                 $taskSb = [System.Diagnostics.Stopwatch]::StartNew()
-                $potential = Get-CleanupPotential -Mode 'Standard' | Where-Object { $_.Task -eq $task.Name }
+                $potential = Get-CleanupPotential -Mode 'Standard' -TaskName $task.Name
                 $taskSb.Stop()
                 $categoryTimes[$task.Name] = [math]::Round($taskSb.Elapsed.TotalMilliseconds, 2)
                 if ($potential) {
-                    Write-Log "  [$task.Name] ${categoryTimes[$task.Name]}ms - Potential: $(Format-FileSize $potential.Bytes) ($($potential.Count) locations)" 'SCAN'
+                    Write-Log ("{0} | {1} ms | Estimated: {2} | {3} locations" -f $task.Name, $categoryTimes[$task.Name], (Format-FileSize $potential.EstimatedBytes), $potential.FileCount) 'SCAN'
                 } else {
-                    Write-Log "  [$task.Name] ${categoryTimes[$task.Name]}ms - No data" 'SCAN'
+                    Write-Log ("{0} | {1} ms | No data" -f $task.Name, $categoryTimes[$task.Name]) 'SCAN'
                 }
+                Finish-Step -Summary 'Measurement finished'
             }
             
             $totalSb.Stop()
             $totalMs = [math]::Round($totalSb.Elapsed.TotalMilliseconds, 2)
             
             Write-Host ''
-            Write-Log "=== BENCHMARK SUMMARY ===" 'STEP'
-            Write-Log "Total time: ${totalMs}ms ($([math]::Round($totalSb.Elapsed.TotalSeconds, 2))s)" 'OK'
-            Write-Log "Categories scanned: $($tasks.Count)" 'INFO'
+            Write-ReportHeading 'BENCHMARK SUMMARY'
+            Write-ReportMetric 'Elapsed' (Format-ReportDuration $totalSb.Elapsed.TotalSeconds)
+            Write-ReportMetric 'Total milliseconds' ([string]$totalMs)
+            Write-ReportMetric 'Categories measured' ([string]$tasks.Count)
+            Write-ReportMetric 'Recorded errors' ([string]@(Get-CleanupErrorLog).Count)
+            Write-ReviewLine 'Category estimates do not establish complete filesystem coverage.'
+            Write-ReviewLine 'Slowest categories:'
             
             # Show top 5 slowest categories
             $sorted = $categoryTimes.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 5
@@ -279,18 +248,15 @@ if (-not $SkipBootstrap) {
                 Write-Log "  $($entry.Key): $($entry.Value)ms" 'SIZE'
             }
             
-            # Performance rating
-            $rating = if ($totalMs -lt 500) { 'EXCELLENT' }
-            elseif ($totalMs -lt 2000) { 'GOOD' }
-            elseif ($totalMs -lt 5000) { 'FAIR' }
-            else { 'SLOW' }
-            Write-Log "Performance rating: $rating" 'OK'
+            Write-ReviewLine 'Timing depends on data size, access, and cached results. No files were deleted.'
             
             Write-Host ''
-            [void](Read-Host '[Press Enter to return to Menu]')
         }
         default      { Show-Menu }
     }
+    }
+    if ($Mode -eq 'Menu') { & $runMode }
+    else { Invoke-LoggedOperation -Mode $Mode -Action $runMode }
 
     if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }
 }

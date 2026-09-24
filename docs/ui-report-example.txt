@@ -1,0 +1,63 @@
+﻿Illustrative fixture rendered by the UI; these paths and counts are sample data.
+                +-----------------------------------------------------------------+
+                | MAIN MENU                                                       |
+                |                                                                 |
+                | [1] Standard    temp, browsers, apps, orphans                   |
+                | [2] Aggressive  + Windows components + prefetch                 |
+                | [3] Preview     dry run -- see plan only                        |
+                | [4] Scan C:     caches, leftovers, review and restore           |
+                | [5] Health      detailed system health report                   |
+                |                                                                 |
+                | Start with [3] Preview. Use [4] to review the largest findings. |
+                | Other drives and busy application caches are skipped.           |
+                | [Q] Quit                                                        |
+                +-----------------------------------------------------------------+
+
+  ========================================================================
+  SCAN SUMMARY
+  ------------------------------------------------------------------------
+  Scope                    : Local disk C: only
+  Status                   : Finished with coverage gaps
+  Elapsed                  : 00:01:35
+  Scan roots               : 1
+  Files / folders scanned  : 14,280 / 735
+  Candidates found         : 2
+  Candidate data           : 50.0 MB
+  Eligible temp items      : 1 (2.0 MB)
+  Review required          : 1 (48.0 MB)
+  Scan errors              : 1
+  Excluded / skipped       : 2
+  ------------------------------------------------------------------------
+  Discovery does not delete files. Candidate data is not reclaimed space.
+  Some locations were not fully scanned. Check coverage and issues before acting.
+
+  DATA BY CATEGORY / largest first
+  Known app cache          :    48.0 MB | 1 items
+  Stale temporary file     :     2.0 MB | 1 items
+  Next: Preview [3] for routine cleanup; Scan C: [4] to review and quarantine selections.
+
+  SCAN COVERAGE
+  C:\Sample\
+    Status                 : Partial
+    Files / folders        : 14,280 / 735
+    Errors / excluded      : 1 / 2
+
+  CANDIDATE REVIEW / largest first
+  ------------------------------------------------------------------------
+  2 candidates | 50.0 MB | 1 eligible temp items | 1 need review
+  Finding a candidate does not delete it. Age alone does not prove it is unused.
+
+  [1] Known app cache | 48.0 MB | 2 days
+  C:\Sample\ExampleApp\Cache
+  Review required: Matched Example App cache in apps.json. Review before removal; the app may
+  rebuild or download it again.
+
+  [2] Stale temporary file | 2.0 MB | 45 days
+  C:\Sample\Temp\old.tmp
+  Eligible temp item: Known temporary location; revalidation is required before cleanup.
+
+  ========================================================================
+  SCAN ISSUES
+  ------------------------------------------------------------------------
+  Error: C:\Sample\restricted - Access denied
+  Skipped: C:\Sample\BusyApp\Cache - Close the owning app and rescan to review this cache.

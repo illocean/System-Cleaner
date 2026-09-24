@@ -1,8 +1,8 @@
 [
   {
-    "name": "Python Virtual Environments (.local)",
+    "name": "Installed Python Environments (not disposable cache)",
     "process": "python",
-    "category": "Dev Caches",
+    "category": "Installed Tools",
     "locations": [
       { "env": "USERPROFILE", "path": ".local" },
       { "env": "USERPROFILE", "path": ".virtualenvs" },
@@ -14,7 +14,7 @@
     "process": null,
     "category": "Dev Caches",
     "locations": [
-      { "env": "USERPROFILE", "path": ".cache" }
+      { "env": "USERPROFILE", "path": ".cache/pip" }
     ]
   },
   {

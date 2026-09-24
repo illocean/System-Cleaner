@@ -7,7 +7,7 @@ function Get-RunspaceThrottleLimit {
     [CmdletBinding()]
     param()
     if ($script:RunspaceThrottle -gt 0) { return $script:RunspaceThrottle }
-    $cfg = Get-UserConfig -UseDefault
+    $cfg = Get-UserConfig
     $limit = if ($cfg.cleanupMode.parallelEnabled) { $cfg.runspaceThrottle } else { 0 }
     if ($limit -and [int]::TryParse($limit, [ref]0)) {
         $script:RunspaceThrottle = $limit

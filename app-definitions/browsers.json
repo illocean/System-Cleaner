@@ -13,7 +13,6 @@
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/GrShaderCache" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/GraphiteDawnCache" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/DawnWebGPUCache" },
-      { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Local Storage" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Service Worker/CacheStorage" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Service Worker/ScriptCache" },
       { "env": "LOCALAPPDATA", "path": "Google/Chrome/User Data/{profile}/Crashpad" },
@@ -32,7 +31,6 @@
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/DawnCache" },
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/ShaderCache" },
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/GrShaderCache" },
-      { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Local Storage" },
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/Service Worker/CacheStorage" },
       { "env": "LOCALAPPDATA", "path": "Microsoft/Edge/User Data/{profile}/blob_storage" }
     ]
@@ -48,7 +46,6 @@
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Media Cache" },
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/DawnCache" },
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/ShaderCache" },
-      { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/Local Storage" },
       { "env": "LOCALAPPDATA", "path": "BraveSoftware/Brave-Browser/User Data/{profile}/blob_storage" }
     ]
   },

@@ -1,4 +1,6 @@
-﻿# Bakunawa.Cleanup.psm1 â€” Cleanup task execution
+﻿. (Join-Path $PSScriptRoot 'Bakunawa.Discovery.ps1')
+
+# Bakunawa.Cleanup.psm1 â€” Cleanup task execution
 
 # Write-Log is provided by Bakunawa.UI.psm1 (imported after this module with -Scope Global)
 # so the global Write-Log will be the themed version from UI.psm1.
@@ -21,6 +23,41 @@ function Register-CleanupError {
         Category = $(if ($Category) { $Category } else { 'Uncategorized' })
         Error    = $Message
     }
+    if (Get-Command Write-ScanLogText -ErrorAction Ignore) { Write-ScanLogText ("CLEANUP ERROR | {0} | {1} | {2}" -f $Category, $Path, $Message) }
+}
+
+# Private helper: consolidated deletion logic respecting quarantine setting and preview mode.
+# This function consolidates the branching logic for all three deletion paths to reduce code duplication
+# and ensure consistent handling of quarantine mode and preview-mode safety.
+# Returns validated bytes for preview or successful processing; failures throw.
+function Remove-ItemSafely {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [string]$Reason = 'Cleanup',
+        [ValidateSet('Tier1','Tier2','Tier3')][string]$Tier = 'Tier1',
+        [string]$DetectorName = 'Cleanup',
+        [switch]$Preview
+    )
+    $resolved = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    if ($resolved -eq [IO.Path]::GetPathRoot($resolved).TrimEnd('\') -or
+        $resolved -in @((Get-EnvPath 'USERPROFILE'),(Get-EnvPath 'LOCALAPPDATA'),(Get-EnvPath 'APPDATA'),(Get-EnvPath 'SystemRoot'),(Get-EnvPath 'ProgramData'),(Get-EnvPath 'ProgramFiles'),(Get-EnvPath 'ProgramFiles(x86)'))) {
+        throw "Refusing to remove a drive or system/profile root: $resolved"
+    }
+    $excluded = @(Get-CoreExcludedPaths)
+    if (Get-Command Get-QuarantineRoot -ErrorAction Ignore) { $excluded += Get-QuarantineRoot }
+    $measurement = [Bakunawa.Scanner]::Inspect($resolved, [string[]]@($excluded | Where-Object { $_ }))
+    if ($Preview -or $script:IsPreview) { return [long]$measurement.Bytes }
+    if ($Tier -eq 'Tier3') { throw "Report-only candidate: $resolved" }
+    if ($script:UseQuarantine) {
+        $manifest = Move-ItemToQuarantine -Path $resolved -Reason $Reason -Tier $Tier -DetectorName $DetectorName
+        if (-not $manifest) { throw "Quarantine failed: $resolved" }
+        $script:QuarantinedBytes += $measurement.Bytes
+    } else {
+        Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $resolved) { throw "Target remains after removal: $resolved" }
+    }
+    return [long]$measurement.Bytes
 }
 
 # Recursively expands {placeholder} tokens in a path by enumerating matching
@@ -33,26 +70,29 @@ function Expand-WildcardPath {
         [Parameter(Mandatory)][string]$Path,
         [switch]$DirectoriesOnly
     )
-    if ([string]::IsNullOrWhiteSpace($Path)) { return @() }
-    if ($Path -notlike '*{*}*') { return @($Path) }
-
-    $results = [System.Collections.Generic.List[string]]::new()
-    $patternPath = $Path -replace '\{[^}]+\}', '*'
-
-    $childParams = @{ ErrorAction = 'SilentlyContinue' }
-    if ($DirectoriesOnly) { $childParams.Directory = $true }
-    $hits = @(Get-ChildItem -Path $patternPath @childParams)
-
-    foreach ($h in $hits) {
-        if ($h.FullName -like '*{*}*') {
-            foreach ($r in Expand-WildcardPath -Path $h.FullName -DirectoriesOnly:$DirectoriesOnly) {
-                [void]$results.Add($r)
-            }
-        } else {
-            [void]$results.Add($h.FullName)
-        }
+    if ($Path -notmatch '^C:[\\/]') { return @() }
+    $patternPath = $Path -replace '\{sub:([^}]+)\}', '$1' -replace '\{profile\}', '*'
+    if ($patternPath -match '\{[^}]+\}') { throw "Unknown cleanup path placeholder: $Path" }
+    if ($patternPath -notmatch '[*?]') {
+        if ([Bakunawa.Scanner]::IsAllowedPath($patternPath)) { [IO.Path]::GetFullPath($patternPath) }
+        return
     }
-    return @($results)
+    # Expand one segment at a time so wildcards cannot traverse junctions first.
+    $paths = @('C:\')
+    foreach ($segment in ($patternPath.Substring(3) -split '[\\/]' | Where-Object { $_ })) {
+        $paths = @(foreach ($parent in $paths) {
+            if ($segment -match '[*?]') {
+                $pattern = $segment.Replace('[', '`[').Replace(']', '`]')
+                Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like $pattern -and [Bakunawa.Scanner]::IsAllowedPath($_.FullName) -and (-not $DirectoriesOnly -or $_.PSIsContainer) } |
+                    ForEach-Object { $_.FullName }
+            } else {
+                $candidate = Join-Path $parent $segment
+                if ([Bakunawa.Scanner]::IsAllowedPath($candidate) -and (Test-Path -LiteralPath $candidate)) { $candidate }
+            }
+        })
+    }
+    $paths
 }
 
 # Read-only accessor for collected cleanup errors (post-run reporting / diagnostics).
@@ -65,55 +105,54 @@ function Get-CleanupErrorLog {
 
 function Measure-AndClear {
     [CmdletBinding()]
-    param(
-        [AllowEmptyString()][string]$Path,
-        [switch]$EnsureDirectory,
-        [AllowEmptyString()][string]$Category
-    )
-
+    param([AllowEmptyString()][string]$Path, [switch]$EnsureDirectory, [AllowEmptyString()][string]$Category)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-
-    # CHOKE POINT: All deletions must pass exclusion check first
-    if (Test-IsExcludedPath $Path) {
-        Write-Log "SKIP (excluded) $Path" 'WARN'
-        Register-SkippedItem -Reason 'Path is excluded from cleanup' -Target $Path
-        if ($null -ne $script:TaskSkipped) { $script:TaskSkipped++ }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($Path)) {
+        Register-SkippedItem -Reason 'C: only; linked, offline or inaccessible paths are skipped' -Target $Path
+        $script:TaskSkipped++
         return $false
     }
-
+    $Path = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    if ($script:ProcessedCacheRoots -and $script:ProcessedCacheRoots.Contains($Path)) { return $false }
+    foreach ($busy in $script:BusyCachePaths) {
+        if ([Bakunawa.Scanner]::Within($Path, $busy) -or [Bakunawa.Scanner]::Within($busy, $Path)) {
+            Register-SkippedItem -Reason 'Close the owning app to clean this cache' -Target $Path
+            $script:TaskSkipped++
+            return $false
+        }
+    }
+    if (Test-IsExcludedPath $Path) {
+        Register-SkippedItem -Reason 'Path is excluded from cleanup' -Target $Path
+        $script:TaskSkipped++
+        return $false
+    }
     try {
         if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-            if ($EnsureDirectory) {
+            if ($EnsureDirectory -and -not $script:IsPreview) {
                 New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
-                # Creating the requested directory IS the work; empty dir = success.
                 return $true
-            } else {
-                return $false
             }
+            return $false
         }
-        
-        $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Measure-Object
-        if ($items.Count -gt 0) {
-            if (-not $script:IsPreview) {
-                Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
-                New-Item -ItemType Directory -Path $Path -Force -ErrorAction SilentlyContinue | Out-Null
-            }
-            $files = Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer -eq $false }
-            $size = if ($files) { ($files | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum } else { 0 }
-            if ($null -eq $size) { $size = 0 }
-            $script:BytesFreed += [long]$size
-            if ($Category) {
-                if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
-                $script:CategorySizes[$Category] = [long]$size
-            }
-            Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "$Path ($([math]::Round($size/1MB, 2)) MB)"
-            if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
-            if ($null -ne $script:TaskBytes)  { $script:TaskBytes += [long]$size }
-            return $true
+        Write-ReviewLine ("{0}: {1}" -f $(if ($script:IsPreview) { 'Measuring' } else { 'Processing' }), $Path) -ForegroundColor Gray
+        # Preserve the cache root and process siblings independently when one is locked.
+        $size = 0L; $processed = 0
+        foreach ($item in (Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop)) {
+            try {
+                $size += Remove-ItemSafely -Path $item.FullName -Reason $(if ($Category) { $Category } else { 'Cache cleanup' }) -Preview:$script:IsPreview
+                $processed++
+            } catch { Register-CleanupError -Path $item.FullName -Category $Category -Message $_.Exception.Message }
         }
-        return $false
+        if ($processed -eq 0) { return $false }
+        if ($null -eq $script:ProcessedCacheRoots) { $script:ProcessedCacheRoots = New-TrackedSet }
+        [void]$script:ProcessedCacheRoots.Add($Path)
+        $script:BytesFreed += $size
+        if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
+        if ($Category) { $script:CategorySizes[$Category] += $size }
+        $script:TaskCleared++; $script:TaskBytes += $size
+        Write-CommandLog $(if ($script:IsPreview) { 'PREVIEW' } else { 'PROCESSED' }) "$Path ($(Format-FileSize $size))"
+        return $true
     } catch {
-        # Single collection point: record even without a Category (fallback label).
         Register-CleanupError -Path $Path -Category $Category -Message $_.Exception.Message
         return $false
     }
@@ -155,9 +194,10 @@ function Get-CleanupTasks {
 
 function Get-CleanupPotential {
     [CmdletBinding()]
-    param([ValidateSet('Standard','Aggressive')][string]$Mode = 'Standard')
+    param([ValidateSet('Standard','Aggressive')][string]$Mode = 'Standard', [string]$TaskName)
     $results = [System.Collections.Generic.List[System.Object]]::new()
     $tasks = Get-CleanupTasks -Mode $Mode
+    if ($TaskName) { $tasks = @($tasks | Where-Object { $_.Name -eq $TaskName }) }
     foreach ($task in $tasks) {
         $taskName = $task.Name
         $status = 'ok'
@@ -222,7 +262,7 @@ function Get-CleanupPotential {
                     }
                 }
                 # Process devtools-extended app definitions
-                $extendedDefs = Get-AppDefinitions -Category 'devtools-extended'
+                $extendedDefs = Get-AppDefinitions -Category 'devtools-extended' | Where-Object { $_.Category -eq 'Dev Caches' }
                 foreach ($app in $extendedDefs) {
                     if (-not $app.Name) { continue }
                     try {
@@ -295,7 +335,6 @@ function Get-CleanupPotential {
             }
             'Game Caches' {
                 foreach ($gc in @(
-                    (Join-EnvPath 'LOCALAPPDATA' 'Roblox' 'Versions'),
                     (Join-EnvPath 'LOCALAPPDATA' 'Roblox' 'cache'),
                     "$(Join-EnvPath 'PROGRAMFILES' 'Steam')\steamapps\shadercache",
                     (Join-EnvPath 'PROGRAMDATA' 'Epic\UnrealEngineLauncher\Saved\Cache'),
@@ -361,24 +400,40 @@ function Get-CleanupPotential {
                 }
             }
             'Empty/Stale Folders' {
-                foreach ($t in @((Get-EnvPath 'TEMP'), (Join-EnvPath 'LOCALAPPDATA' 'Temp'), $script:SysLoc.WindowsTemp)) {
-                    if ($t -and (Test-Path -LiteralPath $t -PathType Container)) {
-                        $bytes += Get-DirectorySize $t
-                        $count++
+                # Measure empty directories in approved stale-cleanup roots
+                $staleRoots = @(
+                    (Join-EnvPath 'LOCALAPPDATA' 'Temp'),
+                    (Join-EnvPath 'APPDATA' 'Microsoft' 'Windows' 'Recent')
+                )
+                foreach ($root in $staleRoots) {
+                    if ($root -and (Test-Path -LiteralPath $root -PathType Container)) {
+                        try {
+                            $emptyDirs = @([Bakunawa.Scanner]::Walk($root, [string[]]@(Get-CoreExcludedPaths)) |
+                                Where-Object { $_.Kind -eq 'EmptyDirectory' -and $_.Complete })
+                            foreach ($dir in $emptyDirs) {
+                                $bytes += 0  # Empty dirs are 0 bytes, but count them
+                                $count++
+                            }
+                        } catch {
+                            # Silently continue on access errors
+                        }
                     }
                 }
             }
             'Orphan Scan' {
-                # Only scan safe orphan locations (temp, cache)
-                foreach ($r in @(
-                    (Join-EnvPath 'LOCALAPPDATA' 'Temp'),
-                    (Get-EnvPath 'TEMP'),
-                    (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\INetCache')
-                )) {
-                    if ($r -and (Test-Path -LiteralPath $r -PathType Container)) {
-                        $bytes += Get-DirectorySize $r
-                        $count++
+                # Call Phase 3's rewritten Find-OrphanFolders to get real orphan findings (Tier1+2/3)
+                try {
+                    $orphanFindings = Find-OrphanFolders
+                    if ($orphanFindings) {
+                        foreach ($orphan in $orphanFindings) {
+                            $bytes += $orphan.Size
+                            $count++
+                        }
                     }
+                } catch {
+                    Register-CleanupError -Path 'Orphan Scan' -Category 'Orphan Scan' -Message $_.Exception.Message
+                    $bytes = 0
+                    $count = 0
                 }
             }
             'Cloud Sync' {
@@ -430,16 +485,7 @@ function Get-CleanupPotential {
                 }
             }
             'Recycle Bin' {
-                try {
-                    $shell = New-Object -ComObject Shell.Application
-                    $bin = $shell.NameSpace(0xA)
-                    if ($bin) {
-                        $items = $bin.Items()
-                        foreach ($it in $items) { $bytes += [int]$it.Size }
-                    }
-                } catch {
-                    Register-CleanupError -Path 'Recycle Bin' -Category 'Recycle Bin' -Message $_.Exception.Message
-                }
+                $bytes = Get-DirectorySize -Path 'C:\$Recycle.Bin'
             }
         }
         [void]$results.Add([PSCustomObject]@{
@@ -454,38 +500,32 @@ function Get-CleanupPotential {
 }
 function Remove-FilesByPattern {
     [CmdletBinding()]
-    param([ValidateNotNullOrEmpty()][string]$Directory, [ValidateNotNullOrEmpty()][string[]]$Patterns, [string]$Category='General')
-    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) { return 0 }
+    param([ValidateNotNullOrEmpty()][string]$Directory, [ValidateNotNullOrEmpty()][string[]]$Patterns, [string]$Category = 'General')
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($Directory) -or -not (Test-Path -LiteralPath $Directory -PathType Container)) { return 0 }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push([IO.Path]::GetFullPath($Directory))
     $count = 0
-    foreach ($pat in $Patterns) {
-        $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    while ($pending.Count) {
+        $current = $pending.Pop()
         try {
-            $di = [System.IO.DirectoryInfo]::new($Directory)
-            foreach ($f in $di.EnumerateFiles($pat, [System.IO.SearchOption]::AllDirectories)) { $files.Add($f) }
-        } catch {
-            $files = Get-ChildItem -LiteralPath $Directory -Filter $pat -File -Force -Recurse -EA SilentlyContinue
-        }
-        foreach ($f in $files) {
-            $full = $f.FullName
-            if (Test-IsExcludedPath $full) { continue }
-            $sz = $f.Length
-            Write-CommandLog ($(if($script:IsPreview){'PREVIEW rm'}else{'REMOVE'})) $full
-            if (-not $script:IsPreview) {
-                Remove-Item -LiteralPath $full -Force -EA SilentlyContinue
-                if (-not (Test-Path -LiteralPath $full)) {
-                    $script:BytesFreed += $sz
-                    if(-not $script:CategorySizes.ContainsKey($Category)){$script:CategorySizes[$Category]=[long]0}
-                    $script:CategorySizes[$Category] += $sz
-                }
-            } else {
-                $script:BytesFreed += $sz
-                if(-not $script:CategorySizes.ContainsKey($Category)){$script:CategorySizes[$Category]=[long]0}
-                $script:CategorySizes[$Category] += $sz
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Test-IsExcludedPath $current)) { continue }
+            foreach ($child in (Get-ChildItem -LiteralPath $current -Force -ErrorAction Stop)) {
+                if ($child.PSIsContainer) { $pending.Push($child.FullName); continue }
+                $matches = $false
+                foreach ($pattern in $Patterns) { if ($child.Name -like $pattern) { $matches = $true; break } }
+                if (-not $matches) { continue }
+                try {
+                    $size = Remove-ItemSafely -Path $child.FullName -Reason $Category -Preview:$script:IsPreview
+                    $script:BytesFreed += $size; $script:TaskBytes += $size; $script:TaskCleared++
+                    if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
+                    $script:CategorySizes[$Category] += $size
+                    $count++
+                } catch { Register-CleanupError -Path $child.FullName -Category $Category -Message $_.Exception.Message }
             }
-            $count++
-        }
+        } catch { Register-CleanupError -Path $current -Category $Category -Message $_.Exception.Message }
     }
-    $count
+    return $count
 }
 
 function Clear-SystemCaches {
@@ -501,6 +541,7 @@ function Clear-SystemCaches {
         (Join-Path (Get-EnvPath 'SystemDrive') 'tmp')
     ) | Where-Object { $_ } | ForEach-Object { Resolve-FullPath $_ } | Select-Object -Unique
     foreach ($t in $targets) { if ($t -and (Measure-AndClear $t -EnsureDirectory -Category $cat)) { $n++ } }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($script:SysLoc.WindowsRoot)) { return $n }
     $restart = @()
     try {
         foreach ($svc in 'wuauserv','bits','dosvc') {
@@ -541,7 +582,7 @@ function Clear-ChromiumCaches {
         return $n
     }
 
-    if (-not (Test-Path -LiteralPath $UserDataRoot -PathType Container)) { return 0 }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($UserDataRoot) -or -not (Test-Path -LiteralPath $UserDataRoot -PathType Container)) { return 0 }
     $running = if ($script:RunningProcesses) { $script:RunningProcesses } else { Get-RunningProcessNames }
     $processNames = switch ($Label) { 'Chrome' { @('chrome') } 'Edge' { @('msedge') } 'Brave' { @('brave') } 'Opera' { @('opera') } 'Vivaldi'{ @('vivaldi') } default { @() } }
     if ($processNames.Count -gt 0 -and (Test-AnyProcessRunning -RunningProcesses $running -Names $processNames)) {
@@ -549,7 +590,7 @@ function Clear-ChromiumCaches {
         return 0
     }
 
-    $cacheDirs = @('Cache','Code Cache','GPUCache','Media Cache','DawnCache','ShaderCache','GrShaderCache','GraphiteDawnCache','DawnWebGPUCache','Local Storage','Service Worker','blob_storage','Crashpad')
+    $cacheDirs = @('Cache','Code Cache','GPUCache','Media Cache','DawnCache','ShaderCache','GrShaderCache','GraphiteDawnCache','DawnWebGPUCache','Crashpad')
 
     # Iterate every profile subdirectory (Default, Profile 1, ...) so per-profile
     # caches are actually reached. Fall back to root-level cache dirs only when
@@ -576,7 +617,7 @@ function Clear-FirefoxCaches {
     param([AllowEmptyString()][string]$ProfileRoot)
     $cat = 'Browser Caches'; $n = 0
     if (-not (Test-Path -LiteralPath $ProfileRoot -PathType Container)) { return 0 }
-    $cacheDirs = @('cache2','storage','thumbnails','startupCache','webapps','webextensions','loop')
+    $cacheDirs = @('cache2','thumbnails','startupCache','shader-cache')
     foreach ($d in $cacheDirs) {
         $p = Join-Path $ProfileRoot $d
         if ($p -and (Measure-AndClear $p -EnsureDirectory -Category $cat)) { $n++ }
@@ -623,7 +664,6 @@ function Clear-DevCaches {
     $devDirs = @(
         (Join-EnvPath 'LOCALAPPDATA' 'npm' '_logs'),
         (Join-EnvPath 'LOCALAPPDATA' 'pip' 'Cache'),
-        (Join-EnvPath 'LOCALAPPDATA' 'dotnet' 'Sdk'),
         (Join-EnvPath 'LOCALAPPDATA' 'NuGet' 'v3' 'http-cache'),
         (Join-EnvPath 'LOCALAPPDATA' 'Yarn' 'Cache'),
         (Join-EnvPath 'LOCALAPPDATA' 'LOCALAPPDATA' 'pip' 'Cache'),
@@ -631,15 +671,17 @@ function Clear-DevCaches {
         (Join-EnvPath 'APPDATA' 'Code' 'Cache'),
         (Join-EnvPath 'LOCALAPPDATA' 'Temp' 'npm-*'),
         (Join-EnvPath 'LOCALAPPDATA' 'Temp' 'yarn-*'),
-        (Join-EnvPath 'LOCALAPPDATA' 'Android' 'Sdk')
+        (Join-EnvPath 'USERPROFILE' '.android' 'cache')
     )
     $cat = 'Dev Caches'; $n = 0
     foreach ($d in $devDirs) {
-        if ($d -and (Measure-AndClear $d -Category $cat)) { $n++ }
+        foreach ($path in @(Expand-WildcardPath -Path $d -DirectoriesOnly)) {
+            if (Measure-AndClear $path -Category $cat) { $n++ }
+        }
     }
 
     # Process devtools-extended app definitions for .local, .cache, scoop, cargo, android, go, bun
-    $extendedDefs = Get-AppDefinitions -Category 'devtools-extended'
+    $extendedDefs = Get-AppDefinitions -Category 'devtools-extended' | Where-Object { $_.Category -eq 'Dev Caches' }
     foreach ($app in $extendedDefs) {
         if (-not $app.Name) { continue }
         try {
@@ -667,10 +709,11 @@ function Clear-GpuAndShellCaches {
     [CmdletBinding()]
     param()
     $locations = @(
-        (Join-EnvPath 'LOCALAPPDATA' 'NVIDIA'),
-        (Join-EnvPath 'LOCALAPPDATA' 'AMD'),
-        (Join-EnvPath 'APPDATA' 'ShellExView'),
-        (Join-EnvPath 'LOCALAPPDATA' 'IconCache.db')
+        (Join-EnvPath 'LOCALAPPDATA' 'NVIDIA' 'DXCache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'NVIDIA' 'GLCache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'AMD' 'DxCache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'AMD' 'VkCache'),
+        (Join-EnvPath 'LOCALAPPDATA' 'D3DSCache')
     )
     $cat = 'GPU/Shell Caches'; $n = 0
     foreach ($loc in $locations) {
@@ -685,9 +728,9 @@ function Clear-RecycleBinSafe {
     try {
         $recycleBin = 0
         if (-not $script:IsPreview) {
-            Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+            Clear-RecycleBin -DriveLetter C -Force -ErrorAction Stop
         }
-          Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "Recycle Bin"
+          Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" 'Recycle Bin on C:'
           return $true
       } catch {
           Register-CleanupError -Path 'Recycle Bin' -Category 'Recycle Bin' -Message $_.Exception.Message
@@ -714,24 +757,17 @@ function Clear-SystemLogFiles {
 function Remove-EmptyDirectories {
     [CmdletBinding()]
     param([AllowEmptyString()][string]$RootPath)
-    if ([string]::IsNullOrWhiteSpace($RootPath)) { return }
-    if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) { return }
-    try {
-        $dirs = Get-ChildItem -LiteralPath $RootPath -Directory -Recurse -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Descending
-        foreach ($dir in $dirs) {
-            $items = Get-ChildItem -LiteralPath $dir.FullName -Force -ErrorAction SilentlyContinue
-            if ($items.Count -eq 0) {
-                if (-not $script:IsPreview) {
-                    Remove-Item -LiteralPath $dir.FullName -Force -ErrorAction SilentlyContinue
-                }
-                Write-CommandLog "REMOVE $(if($script:IsPreview){'PREVIEW'}else{''})" $dir.FullName
-                  if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
-              }
-          }
-      } catch {
-          Register-CleanupError -Path $RootPath -Category 'Empty/Stale Folders' -Message $_.Exception.Message
-      }
-  }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($RootPath) -or -not (Test-Path -LiteralPath $RootPath -PathType Container)) { return }
+    $resolved = [IO.Path]::GetFullPath($RootPath).TrimEnd('\')
+    foreach ($entry in [Bakunawa.Scanner]::Walk($resolved, [string[]]@(Get-CoreExcludedPaths))) {
+        if ($entry.Kind -eq 'Error') { Register-CleanupError -Path $entry.Path -Category 'Empty folders' -Message $entry.Message }
+        if ($entry.Kind -ne 'EmptyDirectory' -or $entry.Path -eq $resolved -or -not $entry.Complete) { continue }
+        try {
+            $null = Remove-ItemSafely -Path $entry.Path -Reason 'Empty temp folder' -Preview:$script:IsPreview
+            $script:TaskCleared++
+        } catch { Register-CleanupError -Path $entry.Path -Category 'Empty folders' -Message $_.Exception.Message }
+    }
+}
 
 function Remove-StaleJunkFolders {
     [CmdletBinding()]
@@ -747,178 +783,31 @@ function Remove-StaleJunkFolders {
 
 function Find-OrphanFolders {
     [CmdletBinding()]
-    param()
-    Write-CommandLog 'SCAN' 'Orphan Folders'
-    
-    # Check if we have cached orphans (from previous scan)
-    if ($script:OrphanCache -and $script:OrphanCacheTime) {
-        $cacheAge = (New-TimeSpan -Start $script:OrphanCacheTime -End (Get-Date)).TotalSeconds
-        if ($cacheAge -lt 300) {  # 5 minute cache
-            Write-Verbose "Using cached orphan results (age: $([int]$cacheAge)s)"
-            return $script:OrphanCache
-        }
-    }
-    
-    $orphans = @()
-    
-    # Safe orphan locations - these are truly garbage, safe to delete
-    $safeOrphanPatterns = @(
-        @{
-            Path = Join-EnvPath 'LOCALAPPDATA' 'Temp'
-            Pattern = '*'
-            Description = 'Local Temp Files'
-            MinAge = 7  # Days old
-            SafeDelete = $true
-        },
-        @{
-            Path = [Environment]::GetEnvironmentVariable('TEMP', 'Process')
-            Pattern = '*'
-            Description = 'System Temp Files'
-            MinAge = 7
-            SafeDelete = $true
-        },
-        @{
-            Path = Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\INetCache'
-            Pattern = '*'
-            Description = 'Internet Explorer Cache'
-            MinAge = 0
-            SafeDelete = $true
-        },
-        @{
-            Path = Join-EnvPath 'LOCALAPPDATA' 'Google\Chrome\User Data\Default\Cache'
-            Pattern = '*'
-            Description = 'Chrome Cache'
-            MinAge = 0
-            SafeDelete = $true
-        },
-        @{
-            Path = Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Edge\User Data\Default\Cache'
-            Pattern = '*'
-            Description = 'Edge Cache'
-            MinAge = 0
-            SafeDelete = $true
-        },
-        @{
-            Path = Join-EnvPath 'APPDATA' 'Microsoft\Windows\Recent'
-            Pattern = '*.lnk'
-            Description = 'Broken Shortcuts'
-            MinAge = 0
-            SafeDelete = $true
-        }
-    )
-    
-    # Critical system paths to NEVER touch
-    $criticalPaths = @(
-        "$env:SystemRoot",
-        "$env:ProgramFiles",
-        "${env:ProgramFiles(x86)}",
-        (Join-EnvPath 'APPDATA' 'Microsoft'),
-        (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows')
-    )
-    
-    # Get list of currently running processes to avoid deleting active files
-    $runningProcesses = Get-Process -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName
-    
-    foreach ($pattern in $safeOrphanPatterns) {
-        $scanPath = $pattern.Path
-        if (-not $scanPath -or -not (Test-Path $scanPath -PathType Container)) { continue }
-        
-        # Safety check: never scan critical paths
-        $isCritical = $false
-        foreach ($critical in $criticalPaths) {
-            if ($scanPath -like "$critical*") {
-                $isCritical = $true
-                break
-            }
-        }
-        if ($isCritical) { continue }
-        
-        try {
-            Get-ChildItem -LiteralPath $scanPath -Filter $pattern.Pattern -Force -ErrorAction SilentlyContinue | ForEach-Object {
-                $item = $_
-                
-                # Skip if currently in use by running process
-                $inUse = $false
-                foreach ($proc in $runningProcesses) {
-                    if ($item.Name -match [regex]::Escape($proc)) {
-                        $inUse = $true
-                        break
-                    }
-                }
-                if ($inUse) { return }
-                
-                $size = if ($item.PSIsContainer) { Get-DirectorySize $item.FullName } else { $item.Length }
-                $daysSinceModified = ((Get-Date) - $item.LastWriteTime).TotalDays
-                
-                # Only include if old enough and not currently in use
-                if ($daysSinceModified -ge $pattern.MinAge -and $size -gt 0) {
-                    $orphans += [PSCustomObject]@{
-                        Path = $item.FullName
-                        Name = $item.Name
-                        Size = $size
-                        DaysSinceModified = [int]$daysSinceModified
-                        Category = $pattern.Description
-                        Tier = 'Tier1'  # Safe to delete
-                        RiskLevel = 'Safe'
-                        SafeDelete = $pattern.SafeDelete
-                    }
-                }
-            }
-          } catch {
-              Register-CleanupError -Path $scanPath -Category 'Orphan Scan' -Message $_.Exception.Message
-              Write-Verbose "Error scanning $scanPath : $_"
-          }
-    }
-    
-    # Cache the results
-    $script:OrphanCache = $orphans
-    $script:OrphanCacheTime = Get-Date
-    
-    return $orphans
+    param([string[]]$Roots, [ValidateRange(1,3650)][int]$OlderThanDays = 30, [switch]$Refresh)
+    Invoke-OrphanDiscovery @PSBoundParameters
 }
 
 function Clear-CachedOrphans {
     [CmdletBinding()]
     param([switch]$Preview)
-    
-    if (-not $script:OrphanCache -or $script:OrphanCache.Count -eq 0) {
-        Write-CommandLog 'INFO' 'No cached orphans to clean'
-        return 0
-    }
-    
-    $totalSize = 0L
-    $deletedCount = 0
-    
-    foreach ($orphan in $script:OrphanCache) {
-        # Safety: only delete if marked as safe
-        if (-not $orphan.SafeDelete) { continue }
-        
-        # Skip if path doesn't exist anymore
-        if (-not (Test-Path -LiteralPath $orphan.Path)) { continue }
-        
+    $isDryRun = $Preview -or $script:IsPreview
+    $totalSize = 0L; $count = 0
+    foreach ($orphan in @($script:OrphanCache)) {
+        if (-not $orphan -or -not $orphan.SafeDelete) { continue }
         try {
-            if (-not $Preview) {
-                Remove-Item -LiteralPath $orphan.Path -Recurse -Force -ErrorAction SilentlyContinue
+            $current = [Bakunawa.Scanner]::Inspect($orphan.Path, [string[]]@(Get-ScanExclusions))
+            if ($current.Bytes -ne $orphan.Size -or $current.LatestWriteUtc -ne $orphan.LatestWriteUtc -or $current.Files -ne $orphan.FileCount) {
+                throw 'Target changed since scan; rescan required.'
             }
-            $totalSize += $orphan.Size
-            $deletedCount++
-            Write-CommandLog "CLEAR $(if($Preview){'PREVIEW'}else{''})" $orphan.Path
-            if ($null -ne $script:TaskCleared) { $script:TaskCleared++ }
-          } catch {
-              Register-CleanupError -Path $orphan.Path -Category 'Orphan Scan' -Message $_.Exception.Message
-              Write-Verbose "Failed to delete orphan $($orphan.Path): $_"
-          }
+            $totalSize += Remove-ItemSafely -Path $orphan.Path -Reason $orphan.Category -Tier $orphan.Tier -DetectorName 'Find-OrphanFolders' -Preview:$isDryRun
+            $count++
+        } catch { Register-CleanupError -Path $orphan.Path -Category 'Orphan Scan' -Message $_.Exception.Message }
     }
-    
-    $script:BytesFreed += $totalSize
+    $script:BytesFreed += $totalSize; $script:TaskBytes += $totalSize; $script:TaskCleared += $count
     if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
     $script:CategorySizes['Orphan Files'] = $totalSize
-    
-    # Clear cache after deletion
-    $script:OrphanCache = $null
-    $script:OrphanCacheTime = $null
-    
-    return $deletedCount
+    if (-not $isDryRun) { $script:OrphanCacheTime = $null }
+    return $count
 }
 
 function Clear-Prefetch {
@@ -933,18 +822,9 @@ function Clear-Prefetch {
 function Clear-EventLogs {
     [CmdletBinding()]
     param()
-    try {
-        if (-not $script:IsPreview) {
-            Get-EventLog -List | ForEach-Object {
-                Clear-EventLog -LogName $_.Log -ErrorAction SilentlyContinue
-            }
-        }
-          Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" 'Event Logs'
-          return $true
-      } catch {
-          Register-CleanupError -Path 'Event Logs' -Category 'Log Files' -Message $_.Exception.Message
-          return $false
-      }
+    # Event log storage can be redirected. Preserve diagnostics rather than clear another drive.
+    Register-SkippedItem -Reason 'Event logs are retained; storage may be redirected outside C:' -Target 'Event Logs'
+    return $false
 }
 
 function Clear-FontCache {
@@ -960,27 +840,27 @@ function Clear-ThumbnailCache {
     param()
     $thumbDir = (Join-EnvPath 'LOCALAPPDATA' 'Microsoft\Windows\Explorer')
     $cat = 'Thumbnail Cache'; $n = 0
-    if (-not $thumbDir -or -not (Test-Path -LiteralPath $thumbDir -PathType Container)) { return 0 }
+    if (-not [Bakunawa.Scanner]::IsAllowedPath($thumbDir) -or -not (Test-Path -LiteralPath $thumbDir -PathType Container)) { return 0 }
     # Only target the thumbnail DB files; leave other Explorer state (IconCache.db is also here)
     $files = Get-ChildItem -LiteralPath $thumbDir -File -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'thumbcache_*.db' -or $_.Name -ieq 'IconCache.db' }
+
+    # Thumbnail cache files (thumbcache_*.db, IconCache.db) are small, safe, and isolated.
+    # Route through quarantine for safety; per-file quarantine adds negligible overhead.
     foreach ($f in $files) {
         if (Test-IsExcludedPath $f.FullName) { continue }
         $sz = $f.Length
+        try {
         Write-CommandLog "CLEAR $(if($script:IsPreview){'PREVIEW'}else{''})" "$($f.FullName) ($([math]::Round($sz/1MB,2)) MB)"
-        if (-not $script:IsPreview) {
-            try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { Register-CleanupError -Path $f.FullName -Category $cat -Message $_.Exception.Message; continue }
-            $script:BytesFreed += [long]$sz
-            if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
-            if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
-            $script:CategorySizes[$cat] += [long]$sz
-        } else {
-            $script:BytesFreed += [long]$sz
-            if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
-            if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
-            $script:CategorySizes[$cat] += [long]$sz
-        }
+        $deletedSize = Remove-ItemSafely -Path $f.FullName -Reason $cat -Tier 'Tier1' `
+            -DetectorName 'Clear-ThumbnailCache' -Preview:$script:IsPreview
+        $script:BytesFreed += [long]$deletedSize
+        if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
+        if (-not $script:CategorySizes.ContainsKey($cat)) { $script:CategorySizes[$cat] = [long]0 }
+        $script:CategorySizes[$cat] += [long]$deletedSize
+        $script:TaskCleared++; $script:TaskBytes += [long]$deletedSize
         $n++
+        } catch { Register-CleanupError -Path $f.FullName -Category $cat -Message $_.Exception.Message }
     }
     return $n
 }
@@ -993,12 +873,12 @@ function Invoke-CleanupRun {
         [AllowNull()][hashtable]$Config
     )
     
-    # Reset script tracking variables if not already set
-    if (-not $script:BytesFreed) { $script:BytesFreed = 0 }
-    if (-not $script:CategorySizes) { $script:CategorySizes = @{} }
-    if (-not $script:Errors) { $script:Errors = @() }
-    if (-not $script:SkippedItems) { $script:SkippedItems = @() }
-    if (-not $script:IsPreview) { $script:IsPreview = ($WhatIf.IsPresent -or ($Mode -eq 'Preview')) }
+    $script:BytesFreed = 0L
+    $script:QuarantinedBytes = 0L
+    $script:CategorySizes = @{}
+    $script:Errors = @()
+    $script:SkippedItems = @()
+    $script:IsPreview = ($WhatIf.IsPresent -or ($Mode -eq 'Preview'))
     $effectiveMode = if ($Mode -eq 'Preview') { 'Standard' } else { $Mode }
     
     # Load config if not provided
@@ -1011,6 +891,10 @@ function Invoke-CleanupRun {
             Write-Debug "Failed to load user config, using defaults: $($_.Exception.Message)"
         }
     }
+
+    Initialize-CleanupState -Config $Config
+    $Config = $script:CleanupConfig
+    $script:IsPreview = ($script:IsPreview -or [bool]$Config.cleanupMode.dryRun)
     
     # Get tasks based on mode
     $tasks = Get-CleanupTasks -Mode $effectiveMode
@@ -1026,14 +910,15 @@ function Invoke-CleanupRun {
     
     $script:TotalSteps = $tasks.Count
     $script:StepIndex = 0
+    Reset-CleanupProgress
 
-    $modeNote = switch ($Mode) {
+    $modeNote = if ($script:IsPreview) { 'nothing will be deleted' } else { switch ($Mode) {
         'Preview'    { 'nothing will be deleted' }
         'Aggressive' { 'deep clean - files will be deleted' }
         default      { 'files will be deleted' }
-    }
+    } }
     Write-Host ''
-    Write-Host ("Bakunawa - {0}: {1} tasks - {2}" -f $Mode, $tasks.Count, $modeNote) -ForegroundColor White
+    Write-ReviewLine ("Bakunawa - {0}: {1} tasks - {2}" -f $Mode, $tasks.Count, $modeNote)
 
     $runStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $script:RunCleared = 0
@@ -1050,59 +935,20 @@ function Invoke-CleanupRun {
         $script:TaskSkipped = 0
         $script:TaskBytes   = [long]0
         
+        $errorsBefore = @($script:Errors).Count
+        try {
         switch ($taskName) {
             'System Caches' { $null = Clear-SystemCaches }
             'Browser Caches' {
-                # Get browser paths from app definitions filtered to Browser Caches
-                $browserPaths = @()
-                $applist = Get-AllAppDefinitions -Category 'Browser Caches'
-                foreach ($app in $applist) {
+                # Definitions already point to exact cache directories, including profile tokens.
+                foreach ($app in (Get-AllAppDefinitions -Category 'Browser Caches')) {
                     if (-not $app.Path) { continue }
-                    $browserPaths += @{ UserDataRoot = $app.Path; Label = $app.Name }
-                }
-
-                if ($browserPaths.Count -eq 0) {
-                    # Fallback defaults
-                    $browserPaths = @(
-                        @{ UserDataRoot = (Join-EnvPath 'LOCALAPPDATA' 'Google' 'Chrome' 'User Data'); Label = 'Chrome' },
-                        @{ UserDataRoot = (Join-EnvPath 'LOCALAPPDATA' 'Microsoft' 'Edge' 'User Data'); Label = 'Edge' },
-                        @{ UserDataRoot = (Join-EnvPath 'LOCALAPPDATA' 'BraveSoftware' 'Brave-Browser' 'User Data'); Label = 'Brave' },
-                        @{ UserDataRoot = (Join-EnvPath 'APPDATA' 'Opera Software' 'Opera Stable'); Label = 'Opera' },
-                        @{ UserDataRoot = (Join-EnvPath 'LOCALAPPDATA' 'Vivaldi' 'User Data'); Label = 'Vivaldi' }
-                    )
-                }
-
-                # Each browser app def may have a path with {profile} wildcard.
-                # Normalize to the User Data root for Clear-ChromiumCaches.
-                $normalized = @()
-                foreach ($bp in $browserPaths) {
-                    $p = [string]$bp.UserDataRoot
-                    if ($p -like '*{*}*') {
-                        foreach ($hit in @(Expand-WildcardPath -Path $p -DirectoriesOnly)) {
-                            $normalized += @{ UserDataRoot = $hit; Label = $bp.Label }
-                        }
-                    } else {
-                        $normalized += $bp
+                    if (Test-AnyProcessRunning -RunningProcesses $script:RunningProcesses -Names @($app.Process)) {
+                        Register-SkippedItem -Reason 'Close the browser to clean its cache' -Target $app.Name
+                        continue
                     }
-                }
-                if ($normalized.Count -gt 0) { $browserPaths = $normalized }
-
-                if ($isParallel) {
-                    foreach ($browser in $browserPaths) {
-                        $null = Clear-ChromiumCaches -UserDataRoot $browser.UserDataRoot -Label $browser.Label
-                    }
-                } else {
-                    foreach ($browser in $browserPaths) {
-                        $null = Clear-ChromiumCaches -UserDataRoot $browser.UserDataRoot -Label $browser.Label
-                    }
-                }
-
-                # Firefox
-                $ffProfile = (Join-EnvPath 'APPDATA' 'Mozilla' 'Firefox' 'Profiles')
-                if (Test-Path -LiteralPath $ffProfile -PathType Container) {
-                    $profiles = Get-ChildItem -LiteralPath $ffProfile -Directory -Filter '*.default*' -ErrorAction SilentlyContinue
-                    foreach ($profile in $profiles) {
-                        $null = Clear-FirefoxCaches -ProfileRoot $profile.FullName
+                    foreach ($path in @(Expand-WildcardPath -Path $app.Path -DirectoriesOnly)) {
+                        $null = Measure-AndClear -Path $path -Category 'Browser Caches'
                     }
                 }
             }
@@ -1128,8 +974,20 @@ function Invoke-CleanupRun {
             }
             'Prefetch' { $null = Clear-Prefetch }
             'DISM' { 
-                # DISM cleanup would be done via external command
-                Write-CommandLog 'DISM cleanup skipped (would run externally)'
+                if (-not [Bakunawa.Scanner]::IsAllowedPath((Get-EnvPath 'SystemRoot'))) {
+                    Register-SkippedItem -Reason 'Windows servicing is restricted to C:' -Target 'DISM'
+                    break
+                }
+                if ($script:IsPreview) {
+                    Write-CommandLog 'PREVIEW' 'DISM /Online /Cleanup-Image /StartComponentCleanup'
+                } else {
+                    $dism = Join-Path (Get-EnvPath 'SystemRoot') 'System32\dism.exe'
+                    try {
+                        & $dism /Online /Cleanup-Image /StartComponentCleanup | ForEach-Object { Write-CommandLog 'DISM' $_ }
+                        if ($LASTEXITCODE -notin @(0,3010)) { throw "DISM exited with code $LASTEXITCODE" }
+                        if ($LASTEXITCODE -eq 3010) { Write-CommandLog 'INFO' 'Restart Windows to finish component cleanup.' }
+                    } catch { Register-CleanupError -Path $dism -Category 'DISM' -Message $_.Exception.Message }
+                }
             }
              'Event Logs + Font Cache' { 
                  $null = Clear-EventLogs
@@ -1235,9 +1093,15 @@ function Invoke-CleanupRun {
              }
         }
 
+        } catch {
+            Register-CleanupError -Path $taskName -Category $taskName -Message $_.Exception.Message
+        }
+
         # Compose informative per-task summary
         $script:RunCleared += $script:TaskCleared
         $parts = @()
+        $taskErrors = @($script:Errors).Count - $errorsBefore
+        if ($taskErrors -gt 0) { $parts += ("$taskErrors error(s)") }
         if ($script:TaskCleared -gt 0) { $parts += ('{0} path{1}' -f $script:TaskCleared, $(if ($script:TaskCleared -eq 1) { '' } else { 's' })) }
         if ($script:TaskBytes -gt 0)   { $parts += (Format-FileSize $script:TaskBytes) }
         if ($script:TaskSkipped -gt 0) { $parts += ('{0} skipped' -f $script:TaskSkipped) }
@@ -1250,12 +1114,15 @@ function Invoke-CleanupRun {
     # Return results
     return [PSCustomObject]@{
         Mode = $Mode
-        BytesFreed = [long]$script:BytesFreed
+        BytesFreed = $(if ($script:IsPreview) { [long]$script:BytesFreed } else { [long][math]::Max(0, $script:BytesFreed - $script:QuarantinedBytes) })
+        QuarantinedBytes = [long]$script:QuarantinedBytes
+        IsPreview = [bool]$script:IsPreview
         PathsCleared = [int]$script:RunCleared
         CategorySizes = $script:CategorySizes
         Errors = $script:Errors
-        SkippedItems = $script:SkippedItems
-        OrphanFounds = if($script:OrphanFolders) { $script:OrphanFolders.Count } else { 0 }
+        SkippedItems = @(Get-CoreSkippedItems)
+        OrphanFounds = @($script:OrphanCache | Where-Object { $_ }).Count
+        ScanReport = $script:LastScanReport
         DurationSec = [math]::Round($runStopwatch.Elapsed.TotalSeconds, 1)
     }
 }
@@ -1266,10 +1133,9 @@ function Clear-GameCaches {
     Write-CommandLog 'SCAN' 'Game Platform Caches'
     $cat = 'Game Caches'; $n = 0
     
-    # Roblox Studio cache
-    $robloxStudio = Join-EnvPath 'LOCALAPPDATA' 'Roblox' 'Versions'
-    if ($robloxStudio -and (Test-Path -LiteralPath $robloxStudio -PathType Container)) {
-        if (Measure-AndClear $robloxStudio -Category $cat) { $n++ }
+    # Version directories contain installed executables; only their client cache is disposable.
+    foreach ($cache in @(Expand-WildcardPath -Path (Join-EnvPath 'LOCALAPPDATA' 'Roblox/Versions/*/ClientCache') -DirectoriesOnly)) {
+        if (Measure-AndClear $cache -Category $cat) { $n++ }
     }
     
     # Steam shader cache (structure: steamapps\shadercache\)
@@ -1401,6 +1267,10 @@ Export-ModuleMember -Function @(
     'Remove-EmptyDirectories',
     'Remove-StaleJunkFolders',
     'Find-OrphanFolders',
+    'Get-ScanDriveRoots',
+    'Get-OrphanScanReport',
+    'Clear-ReviewedOrphans',
+    'Initialize-CleanupState',
     'Clear-CachedOrphans',
     'Clear-Prefetch',
     'Clear-EventLogs',

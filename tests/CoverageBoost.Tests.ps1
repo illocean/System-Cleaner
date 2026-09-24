@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # Pester v5 tests covering the Phase 1+2 coverage-boost changes.
 #
 # These tests would have caught the four root-cause bugs:
@@ -16,6 +16,22 @@ BeforeAll {
     Import-Module "$repoRoot/src/Bakunawa.Core.psm1" -Force
     Import-Module "$repoRoot/src/Bakunawa.UI.psm1" -Force -DisableNameChecking
     Import-Module "$repoRoot/src/Bakunawa.Cleanup.psm1" -Force -DisableNameChecking
+    # Keep legacy tests inside Pester's disposable sandbox. Script variables in this
+    # test file do not set module state, so configure the actual module explicitly.
+    Import-Module "$repoRoot/src/Bakunawa.Config.psm1" -Force -DisableNameChecking
+    Import-Module "$repoRoot/src/Bakunawa.Quarantine.psm1" -Force -DisableNameChecking
+    & (Get-Module Bakunawa.Cleanup) { $script:IsPreview = $true }
+    Mock -ModuleName Bakunawa.Cleanup Get-ScanDriveRoots { @($TestDrive) }
+    Mock -ModuleName Bakunawa.Cleanup Get-QuarantineRoot { Join-Path $TestDrive 'Quarantine' }
+    Mock -ModuleName Bakunawa.Quarantine Get-QuarantineRoot { Join-Path $TestDrive 'Quarantine' }
+    Mock -ModuleName Bakunawa.Cleanup Get-DirectorySize {
+        param($Path)
+        # Real sizing for fixture paths; no machine-wide measurements in unit tests.
+        if ($Path -like '*pester_*' -or $Path -like '*phase*_test_*' -or $Path -like '*regression_test_*' -or $Path -like '*integration_test_*') {
+            Bakunawa.Core\Get-DirectorySize -Path $Path
+        } else { 0L }
+    }
+
 
     # Expected source files (one per app-definitions/*.json) used for cross-validation.
     $script:ExpectedSourceFiles = @(
@@ -301,7 +317,9 @@ Describe 'Phase 3: Wildcard expansion in cleanup arms' {
         Mock -ModuleName Bakunawa.UI       Finish-Step      { } -ParameterFilter { $true }
         Mock -ModuleName Bakunawa.UI       Write-CommandLog { } -ParameterFilter { $true }
 
-        $null = Invoke-CleanupRun -Mode Preview
+        $testConfig = Get-DefaultConfig
+        $testConfig.taskCategories['Productivity'].enabled = $true
+        $null = Invoke-CleanupRun -Mode Preview -Config $testConfig
 
         # Find the Measure-AndClear mock invocation(s) for the Productivity arm
         $hits = @($script:MeasureAndClearCalls | Where-Object Category -eq 'Productivity')
